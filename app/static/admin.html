@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeowStatus Admin</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="page page-admin">
+    <div id="auth-modal" class="modal-overlay">
+      <div class="modal-card">
+        <p class="eyebrow">ADMIN ACCESS</p>
+        <h2>管理面板登录</h2>
+        <p class="subtitle">请输入 Admin Token 进入管理面板</p>
+
+        <form id="login-form" class="col-form">
+          <label>
+            Admin Token
+            <input id="login-token" type="password" autocomplete="off" required />
+          </label>
+          <button type="submit">登录</button>
+        </form>
+
+        <form id="rotate-form" class="col-form hidden">
+          <p class="hint">首次登录需要先修改 Token 才能继续。</p>
+          <label>
+            新 Token
+            <input id="new-token" type="password" autocomplete="off" minlength="8" required />
+          </label>
+          <label>
+            确认新 Token
+            <input id="confirm-token" type="password" autocomplete="off" minlength="8" required />
+          </label>
+          <button type="submit">修改 Token 并进入</button>
+        </form>
+
+        <p id="auth-message" class="hint auth-hint"></p>
+      </div>
+    </div>
+
+    <main class="layout">
+      <section class="panel panel-wide topbar-panel">
+        <div class="brand-block">
+          <p class="eyebrow">MEOW STATUS HUB</p>
+          <h1>Admin Console</h1>
+          <p class="subtitle">已登录后可管理状态、挂件与全站主题</p>
+        </div>
+        <div class="topbar-tools">
+          <button id="logout-btn" type="button" class="danger">退出登录</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>个人状态管理</h2>
+
+        <div class="status-box compact">
+          <div>
+            <span class="label">当前状态</span>
+            <strong id="current-state" class="state-value small">-</strong>
+          </div>
+          <div>
+            <span class="label">备注</span>
+            <span id="current-note">-</span>
+          </div>
+          <div>
+            <span class="label">更新时间</span>
+            <span id="current-updated-at">-</span>
+          </div>
+        </div>
+
+        <div class="status-actions">
+          <button data-state="working">工作中</button>
+          <button data-state="studying">学习中</button>
+          <button data-state="resting">休息中</button>
+          <button data-state="away">离开中</button>
+        </div>
+
+        <form id="status-form" class="row-form">
+          <input id="status-note" type="text" maxlength="160" placeholder="备注，例如：在写代码" />
+          <button type="submit">更新状态</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>添加 Minecraft 挂件</h2>
+        <form id="mc-form" class="col-form">
+          <label>
+            名称
+            <input id="mc-name" type="text" placeholder="我的生存服" />
+          </label>
+          <label>
+            版本
+            <select id="mc-edition">
+              <option value="java">Java</option>
+              <option value="bedrock">Bedrock</option>
+            </select>
+          </label>
+          <label>
+            主机
+            <input id="mc-host" type="text" required placeholder="mc.example.com" />
+          </label>
+          <label>
+            端口
+            <input id="mc-port" type="number" min="1" max="65535" placeholder="留空使用默认端口" />
+          </label>
+          <button type="submit">创建挂件</button>
+        </form>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-head">
+          <h2>主题管理</h2>
+          <span class="hint">仅管理面板可设置，公开页自动同步</span>
+        </div>
+        <div class="theme-toolbar">
+          <input id="theme-search" type="text" placeholder="搜索主题（名称或ID）" autocomplete="off" />
+          <p class="theme-current">当前主题：<strong id="theme-current-name">-</strong></p>
+        </div>
+        <div id="theme-grid" class="theme-grid"></div>
+        <p id="theme-message" class="hint"></p>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-head">
+          <h2>挂件管理</h2>
+          <button id="refresh-all">刷新全部</button>
+        </div>
+        <div id="widget-list" class="widget-list"></div>
+      </section>
+    </main>
+
+    <template id="widget-template">
+      <article class="widget-card" data-online="unknown">
+        <header>
+          <h3 class="widget-name"></h3>
+          <span class="widget-kind"></span>
+        </header>
+        <p class="widget-line"><strong>目标：</strong><span class="target"></span></p>
+        <p class="widget-line"><strong>在线：</strong><span class="online"></span></p>
+        <p class="widget-line"><strong>版本：</strong><span class="version"></span></p>
+        <p class="widget-line"><strong>服务端：</strong><span class="software"></span></p>
+        <p class="widget-line"><strong>人数：</strong><span class="players"></span></p>
+        <p class="widget-line"><strong>MOTD：</strong><span class="motd"></span></p>
+        <p class="widget-line"><strong>延迟：</strong><span class="latency"></span></p>
+        <p class="widget-line"><strong>更新时间：</strong><span class="updated-at"></span></p>
+        <p class="error"></p>
+        <div class="button-row">
+          <button class="refresh-btn">刷新</button>
+          <button class="edit-btn" type="button">编辑</button>
+          <button class="delete-btn danger" type="button">删除</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="/static/theme.js"></script>
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

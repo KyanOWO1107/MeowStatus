@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local runtime data
+/data/*.db
+/data/*.sqlite
+/data/*.sqlite3
+
+# Playwright artifacts
+.playwright-cli/
+more-theme-1.md
+statuspage-ask.md

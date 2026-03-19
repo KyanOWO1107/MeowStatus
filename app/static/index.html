@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeowStatus</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="page page-public">
+    <main class="layout">
+      <section class="panel panel-wide topbar-panel">
+        <div class="brand-block">
+          <p class="eyebrow">MEOW STATUS HUB</p>
+          <h1>MeowStatus Live Board</h1>
+          <p class="subtitle">公开状态展示页（只读）</p>
+        </div>
+      </section>
+
+      <section class="panel panel-wide status-hero">
+        <div class="hero-main">
+          <span class="label">当前状态</span>
+          <strong id="current-state" class="state-value">-</strong>
+        </div>
+        <div class="hero-meta-grid">
+          <div class="hero-meta-item">
+            <span class="label">备注</span>
+            <span id="current-note" class="meta-value">-</span>
+          </div>
+          <div class="hero-meta-item">
+            <span class="label">更新时间</span>
+            <span id="current-updated-at" class="meta-value">-</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-head">
+          <h2>挂件状态</h2>
+        </div>
+        <div id="widget-list" class="widget-list"></div>
+      </section>
+    </main>
+
+    <template id="widget-template">
+      <article class="widget-card" data-online="unknown">
+        <header>
+          <h3 class="widget-name"></h3>
+          <span class="widget-kind"></span>
+        </header>
+        <p class="widget-line"><strong>目标：</strong><span class="target"></span></p>
+        <p class="widget-line"><strong>在线：</strong><span class="online"></span></p>
+        <p class="widget-line"><strong>版本：</strong><span class="version"></span></p>
+        <p class="widget-line"><strong>服务端：</strong><span class="software"></span></p>
+        <p class="widget-line"><strong>人数：</strong><span class="players"></span></p>
+        <p class="widget-line"><strong>MOTD：</strong><span class="motd"></span></p>
+        <p class="widget-line"><strong>延迟：</strong><span class="latency"></span></p>
+        <p class="widget-line"><strong>更新时间：</strong><span class="updated-at"></span></p>
+        <p class="error"></p>
+      </article>
+    </template>
+
+    <script src="/static/theme.js"></script>
+    <script src="/static/public.js"></script>
+  </body>
+</html>

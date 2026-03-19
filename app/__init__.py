@@ -1,0 +1,1 @@
+"""MeowStatus application package."""
