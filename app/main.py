@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import mimetypes
 import os
 import threading
@@ -17,11 +18,33 @@ from .plugins import MinecraftBedrockProvider, MinecraftJavaProvider, ProviderRe
 from .poller import WidgetPoller
 from .store import StatusStore, utc_now_iso
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
 logger = logging.getLogger("meowstatus")
+
+
+def configure_logging(config: AppConfig) -> None:
+    config.log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = config.log_dir / "meowstatus.log"
+
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=config.log_max_bytes,
+        backupCount=config.log_backup_count,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(config.log_level)
+    root.addHandler(stream_handler)
+    root.addHandler(file_handler)
+
+    logger.info("Logging initialized: level=%s, file=%s", config.log_level, log_file)
 
 SUPPORTED_UI_THEMES = {
     "bluery",
@@ -664,8 +687,7 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
         return False
 
 
-def build_context() -> AppContext:
-    config = load_config()
+def build_context(config: AppConfig) -> AppContext:
     store = StatusStore(config.db_path, admin_bootstrap_token=config.admin_bootstrap_token)
 
     registry = ProviderRegistry()
@@ -691,10 +713,13 @@ def build_context() -> AppContext:
 
 
 def run() -> None:
-    context = build_context()
+    config = load_config()
+    configure_logging(config)
+
+    context = build_context(config)
     MeowStatusHandler.context = context
 
-    if context.config.admin_bootstrap_token == "change-me":
+    if context.config.admin_bootstrap_token == "change-me" and context.store.is_admin_token_change_required():
         logger.warning("MEOWSTATUS_ADMIN_TOKEN is still default value; please change it immediately")
 
     server = ThreadingHTTPServer((context.config.host, context.config.port), MeowStatusHandler)
@@ -713,5 +738,8 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
+
+
+
 
 

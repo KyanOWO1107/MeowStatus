@@ -49,6 +49,10 @@ class WidgetPoller(threading.Thread):
         except ProviderError as exc:
             logger.warning("Widget %s refresh failed: %s", widget_id, exc)
             return self.store.update_widget_snapshot(widget_id, payload=None, error=str(exc))
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             logger.exception("Widget %s refresh failed with unexpected error", widget_id)
-            return self.store.update_widget_snapshot(widget_id, payload=None, error=f"Unexpected error: {exc}")
+            return self.store.update_widget_snapshot(
+                widget_id,
+                payload=None,
+                error="Widget refresh failed due to internal error",
+            )

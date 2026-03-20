@@ -67,6 +67,41 @@ def _is_legacy_hash(stored_hash: str) -> bool:
     return len(stored_hash) == 64 and not stored_hash.startswith(PBKDF2_ALGORITHM + "$")
 
 
+def _classify_widget_error(error: str | None) -> tuple[str | None, str | None]:
+    if error is None:
+        return None, None
+
+    text = str(error).strip()
+    if not text:
+        return None, None
+
+    lowered = text.lower()
+
+    if "could not query minecraft status api" in lowered:
+        return "MC_NET_FAIL", "Minecraft 状态查询失败（网络不可达或超时）"
+
+    if "minecraft status api returned http" in lowered:
+        return "MC_UPSTREAM_HTTP", "Minecraft 状态查询失败（上游服务返回异常）"
+
+    if "minecraft status api returned invalid json" in lowered:
+        return "MC_UPSTREAM_BAD_JSON", "Minecraft 状态查询失败（上游响应格式异常）"
+
+    if lowered.startswith("unexpected error") or lowered.startswith("widget refresh failed due to internal error"):
+        return "WIDGET_INTERNAL_ERROR", "挂件刷新失败（服务内部异常）"
+
+    if "no provider registered for kind" in lowered:
+        return "WIDGET_PROVIDER_MISSING", "挂件刷新失败（缺少对应类型的提供器）"
+
+    sensitive_markers = ("traceback", "ssl:", "urlopen error", "_ssl.c:", "file \"", "errno")
+    if any(marker in lowered for marker in sensitive_markers):
+        return "WIDGET_RUNTIME_ERROR", "挂件刷新失败（网络或服务异常）"
+
+    if len(text) > 180:
+        return "WIDGET_ERROR_REDACTED", "挂件刷新失败（错误信息已省略）"
+
+    return "WIDGET_ERROR", text
+
+
 class StatusStore:
     def __init__(self, db_path: Path, *, admin_bootstrap_token: str) -> None:
         self.db_path = db_path
@@ -98,6 +133,7 @@ class StatusStore:
                     last_payload_json TEXT,
                     last_updated_at TEXT,
                     last_error TEXT,
+                    last_error_code TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -111,6 +147,8 @@ class StatusStore:
             )
             self._conn.commit()
 
+            self._ensure_widgets_schema(cur)
+
             row = cur.execute("SELECT id FROM profile_status WHERE id = 1").fetchone()
             if row is None:
                 now = utc_now_iso()
@@ -121,6 +159,14 @@ class StatusStore:
                 self._conn.commit()
 
             self._ensure_admin_settings()
+
+    def _ensure_widgets_schema(self, cur: sqlite3.Cursor) -> None:
+        rows = cur.execute("PRAGMA table_info(widgets)").fetchall()
+        columns = {str(row["name"]).strip().lower() for row in rows}
+
+        if "last_error_code" not in columns:
+            cur.execute("ALTER TABLE widgets ADD COLUMN last_error_code TEXT")
+            self._conn.commit()
 
     def _ensure_admin_settings(self) -> None:
         now = utc_now_iso()
@@ -183,7 +229,7 @@ class StatusStore:
     def list_widgets(self, *, enabled_only: bool = False, kind: str | None = None) -> list[dict[str, Any]]:
         query = (
             "SELECT id, kind, name, enabled, config_json, last_payload_json, last_updated_at, "
-            "last_error, created_at, updated_at FROM widgets"
+            "last_error, last_error_code, created_at, updated_at FROM widgets"
         )
         where_parts: list[str] = []
         values: list[Any] = []
@@ -209,7 +255,7 @@ class StatusStore:
             row = self._conn.execute(
                 """
                 SELECT id, kind, name, enabled, config_json, last_payload_json,
-                       last_updated_at, last_error, created_at, updated_at
+                       last_updated_at, last_error, last_error_code, created_at, updated_at
                 FROM widgets WHERE id = ?
                 """,
                 (widget_id,),
@@ -248,8 +294,8 @@ class StatusStore:
                     """
                     INSERT INTO widgets
                     (id, kind, name, enabled, config_json, last_payload_json,
-                     last_updated_at, last_error, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
+                     last_updated_at, last_error, last_error_code, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
                     """,
                     (widget_id, kind, name, int(enabled), config_json, now, now),
                 )
@@ -270,6 +316,7 @@ class StatusStore:
     ) -> dict[str, Any] | None:
         now = utc_now_iso()
         payload_json = json.dumps(payload, ensure_ascii=True) if payload is not None else None
+        error_code, safe_error = _classify_widget_error(error)
 
         with self._lock:
             self._conn.execute(
@@ -277,11 +324,12 @@ class StatusStore:
                 UPDATE widgets
                 SET last_payload_json = ?,
                     last_error = ?,
+                    last_error_code = ?,
                     last_updated_at = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (payload_json, error, now, now, widget_id),
+                (payload_json, safe_error, error_code, now, now, widget_id),
             )
             self._conn.commit()
 
@@ -369,6 +417,16 @@ class StatusStore:
 
     def _widget_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         payload_raw = row["last_payload_json"]
+        classified_code, safe_error = _classify_widget_error(row["last_error"])
+
+        stored_code = row["last_error_code"]
+        if isinstance(stored_code, str) and stored_code.strip():
+            resolved_code = stored_code.strip()
+        else:
+            resolved_code = classified_code
+
+        if safe_error is None:
+            resolved_code = None
 
         return {
             "id": row["id"],
@@ -378,7 +436,8 @@ class StatusStore:
             "config": json.loads(row["config_json"]),
             "last_payload": json.loads(payload_raw) if payload_raw else None,
             "last_updated_at": row["last_updated_at"],
-            "last_error": row["last_error"],
+            "last_error": safe_error,
+            "last_error_code": resolved_code,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

@@ -65,6 +65,13 @@ function toStateText(state) {
   return STATE_LABELS[key] || key;
 }
 
+function formatWidgetError(widget) {
+  const message = widget?.last_error;
+  if (!message) return "";
+  const code = String(widget?.last_error_code || "").trim();
+  return code ? `[${code}] ${message}` : message;
+}
+
 function setAuthMessage(message) {
   authMessage.textContent = message || "";
 }
@@ -250,7 +257,7 @@ function renderWidgets(widgets) {
     node.querySelector(".motd").textContent = payload?.motd || "-";
     node.querySelector(".latency").textContent = toLatencyText(payload);
     node.querySelector(".updated-at").textContent = formatTime(widget.last_updated_at);
-    node.querySelector(".error").textContent = widget.last_error || "";
+    node.querySelector(".error").textContent = formatWidgetError(widget);
 
     node.querySelector(".refresh-btn").addEventListener("click", async () => {
       try {
@@ -562,3 +569,4 @@ setInterval(async () => {
     // Ignore periodic refresh errors in background; manual actions surface errors.
   }
 }, 10000);
+

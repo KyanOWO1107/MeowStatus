@@ -47,6 +47,13 @@ function toStateText(state) {
   return STATE_LABELS[key] || key;
 }
 
+function formatWidgetError(widget) {
+  const message = widget?.last_error;
+  if (!message) return "";
+  const code = String(widget?.last_error_code || "").trim();
+  return code ? `[${code}] ${message}` : message;
+}
+
 async function request(path) {
   const response = await fetch(path);
   const body = await response.json().catch(() => ({}));
@@ -89,7 +96,7 @@ function renderWidgets(widgets) {
     node.querySelector(".motd").textContent = payload?.motd || "-";
     node.querySelector(".latency").textContent = toLatencyText(payload);
     node.querySelector(".updated-at").textContent = formatTime(widget.last_updated_at);
-    node.querySelector(".error").textContent = widget.last_error || "";
+    node.querySelector(".error").textContent = formatWidgetError(widget);
 
     widgetListEl.appendChild(node);
   });

@@ -38,6 +38,10 @@ docker compose up --build -d
 - `MEOWSTATUS_AUTH_MAX_ATTEMPTS` 默认 `5`（限流窗口内最大失败次数）
 - `MEOWSTATUS_AUTH_WINDOW_SEC` 默认 `60`（限流窗口秒数）
 - `MEOWSTATUS_AUTH_LOCKOUT_SEC` 默认 `300`（触发后锁定秒数）
+- LOG_LEVEL 默认 INFO（日志级别）
+- MEOWSTATUS_LOG_DIR 默认 ./logs（日志目录）
+- MEOWSTATUS_LOG_MAX_BYTES 默认 5242880（单日志文件大小上限，字节）
+- MEOWSTATUS_LOG_BACKUP_COUNT 默认 5（轮转保留文件数）
 
 建议部署时至少修改：
 
@@ -115,3 +119,23 @@ docker compose up --build -d
 - `ping_protocol_used` / `query_protocol_used`（协议探测标识）
 
 说明：`debug.ping` 是布尔标志，不是毫秒值；解析时已显式排除布尔值，避免出现 `true/false ms` 或 `1.0/0.0 ms`。
+
+## 日志
+
+服务启动后会自动创建日志目录（默认 `./logs`），并写入滚动日志文件：
+
+- `logs/meowstatus.log`
+- `logs/meowstatus.log.1` ... `logs/meowstatus.log.N`
+
+日志会同时输出到控制台和文件，文件会按大小自动轮转。
+
+## 错误展示安全策略
+
+Minecraft 挂件错误会返回：
+
+- `last_error_code`：稳定错误码（如 `MC_NET_FAIL`）
+- `last_error`：安全文案（不包含底层 SSL/堆栈细节）
+
+完整异常细节仅保留在服务端日志中。
+
+

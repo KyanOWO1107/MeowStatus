@@ -122,7 +122,7 @@ class _MinecraftProviderBase(WidgetProvider):
                 raw = response.read().decode("utf-8")
                 data = json.loads(raw)
         except urllib.error.URLError as exc:
-            raise ProviderError(f"Could not query Minecraft status API: {exc}") from exc
+            raise ProviderError("Could not query Minecraft status API") from exc
         except json.JSONDecodeError as exc:
             raise ProviderError("Minecraft status API returned invalid JSON") from exc
 

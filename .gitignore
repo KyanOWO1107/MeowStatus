@@ -12,3 +12,8 @@ __pycache__/
 .playwright-cli/
 more-theme-1.md
 statuspage-ask.md
+
+# Runtime logs
+/logs/*.log
+/logs/*.log.*
+
