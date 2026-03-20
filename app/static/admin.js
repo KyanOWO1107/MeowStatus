@@ -72,6 +72,27 @@ function formatWidgetError(widget) {
   return code ? `[${code}] ${message}` : message;
 }
 
+function applyWidgetIcon(node, payload) {
+  const iconEl = node.querySelector(".server-icon");
+  if (!iconEl) return;
+
+  const iconCandidates = [
+    payload?.favicon,
+    payload?.icon,
+    payload?.raw?.icon,
+  ];
+  const resolved = iconCandidates.find((value) => typeof value === "string" && value.trim().length > 0);
+  const iconSource = typeof resolved === "string" ? resolved.trim() : "";
+
+  if (iconSource.startsWith("data:image")) {
+    iconEl.src = iconSource;
+    iconEl.classList.remove("hidden");
+  } else {
+    iconEl.removeAttribute("src");
+    iconEl.classList.add("hidden");
+  }
+}
+
 function setAuthMessage(message) {
   authMessage.textContent = message || "";
 }
@@ -241,7 +262,9 @@ function renderWidgets(widgets) {
     return;
   }
 
-  widgets.forEach((widget) => {
+  const total = widgets.length;
+
+  widgets.forEach((widget, index) => {
     const payload = widget.last_payload;
     const node = widgetTemplate.content.firstElementChild.cloneNode(true);
 
@@ -249,6 +272,7 @@ function renderWidgets(widgets) {
 
     node.querySelector(".widget-name").textContent = widget.name;
     node.querySelector(".widget-kind").textContent = widget.kind;
+    applyWidgetIcon(node, payload);
     node.querySelector(".target").textContent = payload?.target || `${widget.config.host}:${widget.config.port}`;
     node.querySelector(".online").textContent = toOnlineText(payload);
     node.querySelector(".version").textContent = payload?.version || "-";
@@ -258,6 +282,46 @@ function renderWidgets(widgets) {
     node.querySelector(".latency").textContent = toLatencyText(payload);
     node.querySelector(".updated-at").textContent = formatTime(widget.last_updated_at);
     node.querySelector(".error").textContent = formatWidgetError(widget);
+
+    const moveUpBtn = node.querySelector(".move-up-btn");
+    if (moveUpBtn) {
+      moveUpBtn.disabled = index <= 0;
+      moveUpBtn.addEventListener("click", async () => {
+        try {
+          await request(
+            `/api/widgets/${widget.id}/order`,
+            {
+              method: "POST",
+              body: JSON.stringify({ position: Math.max(0, index - 1) }),
+            },
+            { admin: true },
+          );
+          await loadDashboard();
+        } catch (error) {
+          alert(error.message);
+        }
+      });
+    }
+
+    const moveDownBtn = node.querySelector(".move-down-btn");
+    if (moveDownBtn) {
+      moveDownBtn.disabled = index >= total - 1;
+      moveDownBtn.addEventListener("click", async () => {
+        try {
+          await request(
+            `/api/widgets/${widget.id}/order`,
+            {
+              method: "POST",
+              body: JSON.stringify({ position: Math.min(total - 1, index + 1) }),
+            },
+            { admin: true },
+          );
+          await loadDashboard();
+        } catch (error) {
+          alert(error.message);
+        }
+      });
+    }
 
     node.querySelector(".refresh-btn").addEventListener("click", async () => {
       try {
@@ -322,7 +386,6 @@ function renderWidgets(widgets) {
     widgetListEl.appendChild(node);
   });
 }
-
 async function refreshThemeFromServer() {
   if (!window.MeowTheme) return;
 

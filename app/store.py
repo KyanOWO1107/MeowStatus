@@ -56,7 +56,6 @@ def _verify_token_hash(stored_hash: str, token: str) -> bool:
         actual_digest = _pbkdf2_hash(token, salt=salt, iterations=iterations)
         return hmac.compare_digest(expected_digest, actual_digest)
 
-    # Legacy compatibility: unsalted SHA-256 hash.
     if len(stored_hash) == 64:
         return hmac.compare_digest(stored_hash, _legacy_hash_token(token))
 
@@ -80,11 +79,20 @@ def _classify_widget_error(error: str | None) -> tuple[str | None, str | None]:
     if "could not query minecraft status api" in lowered:
         return "MC_NET_FAIL", "Minecraft 状态查询失败（网络不可达或超时）"
 
+    if "could not query minecraft server via mcstatus" in lowered:
+        return "MC_NET_FAIL", "Minecraft 状态查询失败（网络不可达或超时）"
+
     if "minecraft status api returned http" in lowered:
         return "MC_UPSTREAM_HTTP", "Minecraft 状态查询失败（上游服务返回异常）"
 
     if "minecraft status api returned invalid json" in lowered:
         return "MC_UPSTREAM_BAD_JSON", "Minecraft 状态查询失败（上游响应格式异常）"
+
+    if "mcstatus library is not installed" in lowered:
+        return "MC_PROVIDER_UNAVAILABLE", "Minecraft 状态查询失败（mcstatus 组件未安装）"
+
+    if "minecraft status lookup failed on all sources" in lowered:
+        return "MC_ALL_SOURCES_FAILED", "Minecraft 状态查询失败（所有数据源不可用）"
 
     if lowered.startswith("unexpected error") or lowered.startswith("widget refresh failed due to internal error"):
         return "WIDGET_INTERNAL_ERROR", "挂件刷新失败（服务内部异常）"
@@ -130,6 +138,7 @@ class StatusStore:
                     name TEXT NOT NULL,
                     enabled INTEGER NOT NULL,
                     config_json TEXT NOT NULL,
+                    sort_order INTEGER,
                     last_payload_json TEXT,
                     last_updated_at TEXT,
                     last_error TEXT,
@@ -164,8 +173,28 @@ class StatusStore:
         rows = cur.execute("PRAGMA table_info(widgets)").fetchall()
         columns = {str(row["name"]).strip().lower() for row in rows}
 
+        changed = False
         if "last_error_code" not in columns:
             cur.execute("ALTER TABLE widgets ADD COLUMN last_error_code TEXT")
+            changed = True
+
+        if "sort_order" not in columns:
+            cur.execute("ALTER TABLE widgets ADD COLUMN sort_order INTEGER")
+            changed = True
+
+        # Backfill deterministic sort order for old rows.
+        needs_backfill = cur.execute(
+            "SELECT 1 FROM widgets WHERE sort_order IS NULL LIMIT 1"
+        ).fetchone()
+        if needs_backfill is not None:
+            rows = cur.execute(
+                "SELECT id FROM widgets ORDER BY created_at ASC, rowid ASC"
+            ).fetchall()
+            for index, row in enumerate(rows):
+                cur.execute("UPDATE widgets SET sort_order = ? WHERE id = ?", (index, row["id"]))
+            changed = True
+
+        if changed:
             self._conn.commit()
 
     def _ensure_admin_settings(self) -> None:
@@ -228,7 +257,7 @@ class StatusStore:
 
     def list_widgets(self, *, enabled_only: bool = False, kind: str | None = None) -> list[dict[str, Any]]:
         query = (
-            "SELECT id, kind, name, enabled, config_json, last_payload_json, last_updated_at, "
+            "SELECT id, kind, name, enabled, config_json, sort_order, last_payload_json, last_updated_at, "
             "last_error, last_error_code, created_at, updated_at FROM widgets"
         )
         where_parts: list[str] = []
@@ -243,7 +272,7 @@ class StatusStore:
         if where_parts:
             query += " WHERE " + " AND ".join(where_parts)
 
-        query += " ORDER BY updated_at DESC, created_at DESC"
+        query += " ORDER BY sort_order ASC, created_at ASC"
 
         with self._lock:
             rows = self._conn.execute(query, values).fetchall()
@@ -254,7 +283,7 @@ class StatusStore:
         with self._lock:
             row = self._conn.execute(
                 """
-                SELECT id, kind, name, enabled, config_json, last_payload_json,
+                SELECT id, kind, name, enabled, config_json, sort_order, last_payload_json,
                        last_updated_at, last_error, last_error_code, created_at, updated_at
                 FROM widgets WHERE id = ?
                 """,
@@ -262,6 +291,17 @@ class StatusStore:
             ).fetchone()
 
         return self._widget_row_to_dict(row) if row else None
+
+    def _next_widget_order_locked(self) -> int:
+        row = self._conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM widgets").fetchone()
+        return int(row["next_order"] if row and row["next_order"] is not None else 0)
+
+    def _rebuild_widget_order_locked(self) -> None:
+        rows = self._conn.execute(
+            "SELECT id FROM widgets ORDER BY sort_order ASC, created_at ASC, rowid ASC"
+        ).fetchall()
+        for index, row in enumerate(rows):
+            self._conn.execute("UPDATE widgets SET sort_order = ? WHERE id = ?", (index, row["id"]))
 
     def upsert_widget(
         self,
@@ -276,9 +316,7 @@ class StatusStore:
         config_json = json.dumps(config, ensure_ascii=True)
 
         with self._lock:
-            current = self._conn.execute(
-                "SELECT id FROM widgets WHERE id = ?", (widget_id,)
-            ).fetchone()
+            current = self._conn.execute("SELECT id FROM widgets WHERE id = ?", (widget_id,)).fetchone()
 
             if current:
                 self._conn.execute(
@@ -290,14 +328,15 @@ class StatusStore:
                     (kind, name, int(enabled), config_json, now, widget_id),
                 )
             else:
+                sort_order = self._next_widget_order_locked()
                 self._conn.execute(
                     """
                     INSERT INTO widgets
-                    (id, kind, name, enabled, config_json, last_payload_json,
+                    (id, kind, name, enabled, config_json, sort_order, last_payload_json,
                      last_updated_at, last_error, last_error_code, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
                     """,
-                    (widget_id, kind, name, int(enabled), config_json, now, now),
+                    (widget_id, kind, name, int(enabled), config_json, sort_order, now, now),
                 )
 
             self._conn.commit()
@@ -306,6 +345,27 @@ class StatusStore:
         if updated is None:
             raise RuntimeError("Widget upsert failed unexpectedly")
         return updated
+
+    def set_widget_order(self, widget_id: str, position: int) -> dict[str, Any] | None:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id FROM widgets ORDER BY sort_order ASC, created_at ASC, rowid ASC"
+            ).fetchall()
+            ordered_ids = [str(row["id"]) for row in rows]
+
+            if widget_id not in ordered_ids:
+                return None
+
+            target = max(0, min(int(position), len(ordered_ids) - 1))
+            ordered_ids.remove(widget_id)
+            ordered_ids.insert(target, widget_id)
+
+            for index, current_id in enumerate(ordered_ids):
+                self._conn.execute("UPDATE widgets SET sort_order = ? WHERE id = ?", (index, current_id))
+
+            self._conn.commit()
+
+        return self.get_widget(widget_id)
 
     def update_widget_snapshot(
         self,
@@ -338,8 +398,13 @@ class StatusStore:
     def delete_widget(self, widget_id: str) -> bool:
         with self._lock:
             cur = self._conn.execute("DELETE FROM widgets WHERE id = ?", (widget_id,))
+            if cur.rowcount <= 0:
+                self._conn.commit()
+                return False
+
+            self._rebuild_widget_order_locked()
             self._conn.commit()
-            return cur.rowcount > 0
+            return True
 
     def verify_admin_token(self, token: str) -> bool:
         if not token:
@@ -356,7 +421,6 @@ class StatusStore:
             stored_hash = row["value"]
             matched = _verify_token_hash(stored_hash, token)
 
-            # Lazy upgrade for legacy hashes after a successful login.
             if matched and _is_legacy_hash(stored_hash):
                 self._conn.execute(
                     "UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?",
@@ -428,12 +492,16 @@ class StatusStore:
         if safe_error is None:
             resolved_code = None
 
+        sort_order_raw = row["sort_order"]
+        sort_order = int(sort_order_raw) if sort_order_raw is not None else 0
+
         return {
             "id": row["id"],
             "kind": row["kind"],
             "name": row["name"],
             "enabled": bool(row["enabled"]),
             "config": json.loads(row["config_json"]),
+            "sort_order": sort_order,
             "last_payload": json.loads(payload_raw) if payload_raw else None,
             "last_updated_at": row["last_updated_at"],
             "last_error": safe_error,
@@ -441,3 +509,4 @@ class StatusStore:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+

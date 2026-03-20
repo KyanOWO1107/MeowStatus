@@ -54,6 +54,27 @@ function formatWidgetError(widget) {
   return code ? `[${code}] ${message}` : message;
 }
 
+function applyWidgetIcon(node, payload) {
+  const iconEl = node.querySelector(".server-icon");
+  if (!iconEl) return;
+
+  const iconCandidates = [
+    payload?.favicon,
+    payload?.icon,
+    payload?.raw?.icon,
+  ];
+  const resolved = iconCandidates.find((value) => typeof value === "string" && value.trim().length > 0);
+  const iconSource = typeof resolved === "string" ? resolved.trim() : "";
+
+  if (iconSource.startsWith("data:image")) {
+    iconEl.src = iconSource;
+    iconEl.classList.remove("hidden");
+  } else {
+    iconEl.removeAttribute("src");
+    iconEl.classList.add("hidden");
+  }
+}
+
 async function request(path) {
   const response = await fetch(path);
   const body = await response.json().catch(() => ({}));
@@ -88,6 +109,7 @@ function renderWidgets(widgets) {
 
     node.querySelector(".widget-name").textContent = widget.name;
     node.querySelector(".widget-kind").textContent = widget.kind;
+    applyWidgetIcon(node, payload);
     node.querySelector(".target").textContent = payload?.target || `${widget.config.host}:${widget.config.port}`;
     node.querySelector(".online").textContent = toOnlineText(payload);
     node.querySelector(".version").textContent = payload?.version || "-";
@@ -117,3 +139,4 @@ async function loadDashboard() {
 
 loadDashboard();
 setInterval(loadDashboard, 10000);
+

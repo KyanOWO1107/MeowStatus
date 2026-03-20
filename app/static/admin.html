@@ -132,7 +132,10 @@
     <template id="widget-template">
       <article class="widget-card" data-online="unknown">
         <header>
-          <h3 class="widget-name"></h3>
+          <div class="widget-head-left">
+            <img class="server-icon hidden" alt="服务器图标" />
+            <h3 class="widget-name"></h3>
+          </div>
           <span class="widget-kind"></span>
         </header>
         <p class="widget-line"><strong>目标：</strong><span class="target"></span></p>
@@ -148,6 +151,10 @@
           <button class="refresh-btn">刷新</button>
           <button class="edit-btn" type="button">编辑</button>
           <button class="delete-btn danger" type="button">删除</button>
+        </div>
+        <div class="button-row order-row">
+          <button class="move-up-btn" type="button">上移</button>
+          <button class="move-down-btn" type="button">下移</button>
         </div>
       </article>
     </template>

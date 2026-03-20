@@ -13,6 +13,14 @@
 
 ### 本地运行
 
+先安装依赖：
+
+```bash
+python -m pip install "mcstatus>=13,<14"
+```
+
+启动服务：
+
 ```bash
 python -m app.main
 ```
@@ -107,18 +115,24 @@ docker compose up --build -d
 
 ## Minecraft 字段说明
 
-当前实现基于 `api.mcsrvstat.us`，主要输出：
+当前实现支持三种来源：
+
+- `source=auto`（默认）：先使用 `mcstatus` 直连协议查询，失败后自动回退 `api.mcsrvstat.us`
+- `source=mcstatus`：仅使用 `mcstatus`
+- `source=mcsrvstat`：仅使用 `api.mcsrvstat.us`
+
+主要输出：
 
 - 在线状态
 - MOTD
 - 版本
-- 服务端信息（如 Paper / NeoForge，若上游可识别）
+- 服务端信息（如 Paper / NeoForge，尽力识别）
 - 在线人数 / 最大人数
-- favicon
-- 延迟（仅当上游返回数值时）
+- favicon（Java 可取；Bedrock 通常没有自定义图标）
+- 延迟（仅当返回数值时）
 - `ping_protocol_used` / `query_protocol_used`（协议探测标识）
 
-说明：`debug.ping` 是布尔标志，不是毫秒值；解析时已显式排除布尔值，避免出现 `true/false ms` 或 `1.0/0.0 ms`。
+说明：`debug.ping` 在 `mcsrvstat` 中是布尔标志，不是毫秒值；解析时已显式排除布尔值，避免出现 `true/false ms` 或 `1.0/0.0 ms`。
 
 ## 日志
 
@@ -137,5 +151,6 @@ Minecraft 挂件错误会返回：
 - `last_error`：安全文案（不包含底层 SSL/堆栈细节）
 
 完整异常细节仅保留在服务端日志中。
+
 
 

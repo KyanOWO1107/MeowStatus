@@ -2,6 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+RUN pip install --no-cache-dir "mcstatus>=13,<14"
+
 COPY app ./app
 COPY data ./data
 
@@ -18,3 +20,4 @@ ENV MEOWSTATUS_AUTH_LOCKOUT_SEC=300
 EXPOSE 8080
 
 CMD ["python", "-m", "app.main"]
+

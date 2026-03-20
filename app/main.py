@@ -424,6 +424,32 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             return
 
         widget_id, action = self._parse_widget_path(path)
+        if widget_id and action == "order":
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+
+            body = self._parse_json_body()
+            if body is None:
+                return
+
+            raw_position = body.get("position")
+            try:
+                position = int(raw_position)
+            except (TypeError, ValueError):
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "'position' must be an integer >= 0"})
+                return
+
+            if position < 0:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "'position' must be >= 0"})
+                return
+
+            updated = self.context.store.set_widget_order(widget_id, position)
+            if updated is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "Widget not found"})
+            else:
+                self._send_json(HTTPStatus.OK, updated)
+            return
+
         if widget_id and action == "refresh":
             if not self._require_admin(enforce_token_rotated=True):
                 return
@@ -626,7 +652,7 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             "host": body.get("host", existing_config.get("host")),
             "port": body.get("port", existing_config.get("port")),
             "timeout_sec": body.get("timeout_sec", existing_config.get("timeout_sec", 6)),
-            "source": body.get("source", existing_config.get("source", "mcsrvstat")),
+            "source": body.get("source", existing_config.get("source", "auto")),
         }
 
         try:
@@ -738,8 +764,5 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-
-
-
 
 
