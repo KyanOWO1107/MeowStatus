@@ -151,6 +151,17 @@ Minecraft 挂件错误会返回：
 - `last_error`：安全文案（不包含底层 SSL/堆栈细节）
 
 完整异常细节仅保留在服务端日志中。
+## 项目许可证
 
+本项目采用 **Apache License 2.0**。
+
+- 许可证全文见 `LICENSE`
+- 归属声明见 `NOTICE`
+- 第三方依赖声明见 `THIRD_PARTY_NOTICES.md`
+
+## 第三方许可说明
+
+当前已记录的第三方组件许可见 `THIRD_PARTY_NOTICES.md`。
+后续新增依赖或引入第三方代码时，请同步更新该文件。
 
 
