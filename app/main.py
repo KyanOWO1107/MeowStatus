@@ -5,6 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import mimetypes
 import os
+import re
 import threading
 import time
 import uuid
@@ -16,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from .config import AppConfig, load_config
 from .plugins import MinecraftBedrockProvider, MinecraftJavaProvider, ProviderRegistry
 from .poller import WidgetPoller
-from .store import StatusStore, utc_now_iso
+from .store import DEFAULT_UI_COPY, DEFAULT_UI_CUSTOM_THEME, StatusStore, utc_now_iso
 
 logger = logging.getLogger("meowstatus")
 
@@ -77,6 +78,11 @@ SUPPORTED_UI_THEMES = {
     "galaxy",
     "pine",
 }
+
+SUPPORTED_THEME_MODES = {"auto", "light", "dark"}
+SUPPORTED_BACKGROUND_STYLES = {"gradient", "solid"}
+SUPPORTED_FONT_CHOICES = {"default", "mono", "serif", "round", "display"}
+HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 class AuthRateLimiter:
     def __init__(self, *, max_attempts: int, window_sec: int, lockout_sec: int) -> None:
@@ -239,8 +245,19 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/theme":
-            self._send_json(HTTPStatus.OK, {"theme": self.context.store.get_ui_theme()})
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "theme": self.context.store.get_ui_theme(),
+                    "custom_theme": self.context.store.get_ui_custom_theme(),
+                },
+            )
             return
+
+        if path == "/api/copy":
+            self._send_json(HTTPStatus.OK, {"copy": self.context.store.get_ui_copy()})
+            return
+
         if path == "/api/profile/status":
             profile = self.context.store.get_profile_status()
             self._send_json(HTTPStatus.OK, profile)
@@ -268,6 +285,8 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
                 "widgets": self.context.store.list_widgets(),
                 "providers": self.context.registry.list_kinds(),
                 "theme": self.context.store.get_ui_theme(),
+                "custom_theme": self.context.store.get_ui_custom_theme(),
+                "copy": self.context.store.get_ui_copy(),
                 "generated_at": utc_now_iso(),
             }
             self._send_json(HTTPStatus.OK, payload)
@@ -380,14 +399,44 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             if body is None:
                 return
 
-            theme = str(body.get("theme", "")).strip().lower()
+            current_theme = self.context.store.get_ui_theme()
+            theme = str(body.get("theme", current_theme)).strip().lower()
             if theme not in SUPPORTED_UI_THEMES:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Unsupported theme"})
                 return
 
+            custom_theme = self.context.store.get_ui_custom_theme()
+            if "custom_theme" in body:
+                try:
+                    custom_theme = self._normalize_custom_theme(body.get("custom_theme"))
+                except ValueError as exc:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                    return
+                custom_theme = self.context.store.set_ui_custom_theme(custom_theme)
+
             saved = self.context.store.set_ui_theme(theme)
-            self._send_json(HTTPStatus.OK, {"theme": saved})
+            self._send_json(HTTPStatus.OK, {"theme": saved, "custom_theme": custom_theme})
             return
+
+        if path == "/api/copy":
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+
+            body = self._parse_json_body()
+            if body is None:
+                return
+
+            raw_copy = body.get("copy", body)
+            try:
+                normalized_copy = self._normalize_ui_copy(raw_copy)
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+
+            saved_copy = self.context.store.set_ui_copy(normalized_copy)
+            self._send_json(HTTPStatus.OK, {"copy": saved_copy})
+            return
+
         if path == "/api/profile/status":
             if not self._require_admin(enforce_token_rotated=True):
                 return
@@ -691,6 +740,95 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             return "New token must not start or end with whitespace"
         return None
 
+    def _normalize_hex_color(self, value: object, *, default: str) -> str:
+        raw = str(value if value is not None else "").strip()
+        if not raw:
+            return default
+
+        if not HEX_COLOR_RE.match(raw):
+            return default
+
+        if len(raw) == 4:
+            return "#" + "".join(ch * 2 for ch in raw[1:]).lower()
+        return raw.lower()
+
+    def _normalize_int_range(self, value: object, *, default: int, min_value: int, max_value: int) -> int:
+        if value in (None, ""):
+            return default
+
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return default
+
+        return max(min_value, min(max_value, number))
+
+    def _normalize_custom_theme(self, payload: object) -> dict[str, object]:
+        if not isinstance(payload, dict):
+            raise ValueError("'custom_theme' must be an object")
+
+        normalized = dict(DEFAULT_UI_CUSTOM_THEME)
+        normalized["enabled"] = self._coerce_bool(payload.get("enabled"), bool(DEFAULT_UI_CUSTOM_THEME["enabled"]))
+        normalized["background"] = self._normalize_hex_color(
+            payload.get("background"),
+            default=str(DEFAULT_UI_CUSTOM_THEME["background"]),
+        )
+        normalized["accent"] = self._normalize_hex_color(
+            payload.get("accent"),
+            default=str(DEFAULT_UI_CUSTOM_THEME["accent"]),
+        )
+
+        mode = str(payload.get("mode", DEFAULT_UI_CUSTOM_THEME["mode"])).strip().lower()
+        normalized["mode"] = mode if mode in SUPPORTED_THEME_MODES else DEFAULT_UI_CUSTOM_THEME["mode"]
+
+        style = str(payload.get("background_style", DEFAULT_UI_CUSTOM_THEME["background_style"])).strip().lower()
+        normalized["background_style"] = (
+            style if style in SUPPORTED_BACKGROUND_STYLES else DEFAULT_UI_CUSTOM_THEME["background_style"]
+        )
+
+        heading_font = str(payload.get("heading_font", DEFAULT_UI_CUSTOM_THEME["heading_font"])).strip().lower()
+        normalized["heading_font"] = (
+            heading_font if heading_font in SUPPORTED_FONT_CHOICES else DEFAULT_UI_CUSTOM_THEME["heading_font"]
+        )
+
+        body_font = str(payload.get("body_font", DEFAULT_UI_CUSTOM_THEME["body_font"])).strip().lower()
+        normalized["body_font"] = body_font if body_font in SUPPORTED_FONT_CHOICES else DEFAULT_UI_CUSTOM_THEME["body_font"]
+
+        normalized["font_scale"] = self._normalize_int_range(
+            payload.get("font_scale"),
+            default=int(DEFAULT_UI_CUSTOM_THEME["font_scale"]),
+            min_value=85,
+            max_value=130,
+        )
+        normalized["radius_scale"] = self._normalize_int_range(
+            payload.get("radius_scale"),
+            default=int(DEFAULT_UI_CUSTOM_THEME["radius_scale"]),
+            min_value=75,
+            max_value=150,
+        )
+        normalized["shadow_strength"] = self._normalize_int_range(
+            payload.get("shadow_strength"),
+            default=int(DEFAULT_UI_CUSTOM_THEME["shadow_strength"]),
+            min_value=50,
+            max_value=180,
+        )
+
+        return normalized
+
+    def _normalize_ui_copy(self, payload: object) -> dict[str, str]:
+        if not isinstance(payload, dict):
+            raise ValueError("'copy' must be an object")
+
+        normalized = dict(DEFAULT_UI_COPY)
+        for key, default in DEFAULT_UI_COPY.items():
+            raw = payload.get(key, default)
+            text = str(raw if raw is not None else default).strip()
+            if not text:
+                text = default
+            normalized[key] = text[:80]
+
+        return normalized
+
     def _client_identity_key(self) -> str:
         # Reverse proxies should overwrite this by setting proper forwarding middleware.
         return self.client_address[0] or "unknown"
@@ -764,5 +902,11 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
+
+
+
+
+
+
 
 

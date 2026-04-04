@@ -19,6 +19,39 @@ const themeSearchInput = document.getElementById("theme-search");
 const themeCurrentNameEl = document.getElementById("theme-current-name");
 const themeMessageEl = document.getElementById("theme-message");
 
+const customThemeMessageEl = document.getElementById("custom-theme-message");
+const customThemeForm = document.getElementById("custom-theme-form");
+const customThemePreviewBtn = document.getElementById("custom-preview-btn");
+const customThemeSaveBtn = document.getElementById("custom-theme-save-btn");
+const customThemeResetBtn = document.getElementById("custom-theme-reset-btn");
+
+const copyMessageEl = document.getElementById("copy-message");
+const copyForm = document.getElementById("copy-form");
+const copySaveBtn = document.getElementById("copy-save-btn");
+const copyResetBtn = document.getElementById("copy-reset-btn");
+
+const DEFAULT_COPY = {
+  public_eyebrow: "MEOW STATUS HUB",
+  public_title: "MeowStatus Live Board",
+  public_subtitle: "公开状态展示页（只读）",
+  public_widgets_title: "挂件状态",
+  public_state_label: "当前状态",
+  public_note_label: "备注",
+  public_updated_label: "更新时间",
+  public_empty_widgets: "暂时没有挂件数据。",
+};
+
+const COPY_INPUT_IDS = {
+  public_eyebrow: "copy-public-eyebrow",
+  public_title: "copy-public-title",
+  public_subtitle: "copy-public-subtitle",
+  public_widgets_title: "copy-public-widgets-title",
+  public_state_label: "copy-public-state-label",
+  public_note_label: "copy-public-note-label",
+  public_updated_label: "copy-public-updated-label",
+  public_empty_widgets: "copy-public-empty-widgets",
+};
+
 const STATE_LABELS = {
   working: "工作中",
   studying: "学习中",
@@ -28,6 +61,8 @@ const STATE_LABELS = {
 
 let allThemes = [];
 let activeThemeId = "";
+let customThemeInitialized = false;
+let copyInitialized = false;
 
 function formatTime(value) {
   if (!value) return "-";
@@ -101,6 +136,18 @@ function setThemeMessage(message, isError = false) {
   if (!themeMessageEl) return;
   themeMessageEl.textContent = message || "";
   themeMessageEl.classList.toggle("theme-message-error", isError);
+}
+
+function setCustomThemeMessage(message, isError = false) {
+  if (!customThemeMessageEl) return;
+  customThemeMessageEl.textContent = message || "";
+  customThemeMessageEl.classList.toggle("theme-message-error", isError);
+}
+
+function setCopyMessage(message, isError = false) {
+  if (!copyMessageEl) return;
+  copyMessageEl.textContent = message || "";
+  copyMessageEl.classList.toggle("theme-message-error", isError);
 }
 
 function getThemeName(themeId) {
@@ -296,7 +343,7 @@ function renderWidgets(widgets) {
             },
             { admin: true },
           );
-          await loadDashboard();
+          await loadDashboard({ forceSync: false });
         } catch (error) {
           alert(error.message);
         }
@@ -316,7 +363,7 @@ function renderWidgets(widgets) {
             },
             { admin: true },
           );
-          await loadDashboard();
+          await loadDashboard({ forceSync: false });
         } catch (error) {
           alert(error.message);
         }
@@ -326,7 +373,7 @@ function renderWidgets(widgets) {
     node.querySelector(".refresh-btn").addEventListener("click", async () => {
       try {
         await request(`/api/widgets/${widget.id}/refresh`, { method: "POST", body: "{}" }, { admin: true });
-        await loadDashboard();
+        await loadDashboard({ forceSync: false });
       } catch (error) {
         alert(error.message);
       }
@@ -365,7 +412,7 @@ function renderWidgets(widgets) {
           },
           { admin: true },
         );
-        await loadDashboard();
+        await loadDashboard({ forceSync: false });
       } catch (error) {
         alert(error.message);
       }
@@ -377,7 +424,7 @@ function renderWidgets(widgets) {
 
       try {
         await request(`/api/widgets/${widget.id}`, { method: "DELETE" }, { admin: true });
-        await loadDashboard();
+        await loadDashboard({ forceSync: false });
       } catch (error) {
         alert(error.message);
       }
@@ -386,25 +433,114 @@ function renderWidgets(widgets) {
     widgetListEl.appendChild(node);
   });
 }
-async function refreshThemeFromServer() {
-  if (!window.MeowTheme) return;
 
-  try {
-    const result = await window.MeowTheme.loadRemoteTheme();
-    applyThemeSelectionVisual(result.theme);
-  } catch {
-    // Keep current theme when loading fails.
-  }
+function updateRangeOutput(inputId, outputId) {
+  const input = document.getElementById(inputId);
+  const output = document.getElementById(outputId);
+  if (!input || !output) return;
+  output.textContent = `${input.value}%`;
 }
 
-async function loadDashboard() {
+function updateCustomThemeRangeOutputs() {
+  updateRangeOutput("custom-font-scale", "custom-font-scale-output");
+  updateRangeOutput("custom-radius-scale", "custom-radius-scale-output");
+  updateRangeOutput("custom-shadow-strength", "custom-shadow-strength-output");
+}
+
+function readCustomThemeForm() {
+  return window.MeowTheme.normalizeCustomTheme({
+    enabled: document.getElementById("custom-enabled")?.checked,
+    background: document.getElementById("custom-background")?.value,
+    accent: document.getElementById("custom-accent")?.value,
+    mode: document.getElementById("custom-mode")?.value,
+    background_style: document.getElementById("custom-background-style")?.value,
+    heading_font: document.getElementById("custom-heading-font")?.value,
+    body_font: document.getElementById("custom-body-font")?.value,
+    font_scale: Number(document.getElementById("custom-font-scale")?.value || 100),
+    radius_scale: Number(document.getElementById("custom-radius-scale")?.value || 100),
+    shadow_strength: Number(document.getElementById("custom-shadow-strength")?.value || 100),
+  });
+}
+
+function populateCustomThemeForm(rawTheme) {
+  const theme = window.MeowTheme.normalizeCustomTheme(rawTheme || {});
+
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = String(value);
+  };
+
+  const enabledEl = document.getElementById("custom-enabled");
+  if (enabledEl) enabledEl.checked = Boolean(theme.enabled);
+
+  setValue("custom-background", theme.background);
+  setValue("custom-accent", theme.accent);
+  setValue("custom-mode", theme.mode);
+  setValue("custom-background-style", theme.background_style);
+  setValue("custom-heading-font", theme.heading_font);
+  setValue("custom-body-font", theme.body_font);
+  setValue("custom-font-scale", theme.font_scale);
+  setValue("custom-radius-scale", theme.radius_scale);
+  setValue("custom-shadow-strength", theme.shadow_strength);
+
+  updateCustomThemeRangeOutputs();
+}
+
+function normalizeCopy(rawCopy) {
+  const next = { ...DEFAULT_COPY };
+  if (!rawCopy || typeof rawCopy !== "object") {
+    return next;
+  }
+
+  Object.keys(DEFAULT_COPY).forEach((key) => {
+    const value = rawCopy[key];
+    if (typeof value === "string" && value.trim()) {
+      next[key] = value.trim();
+    }
+  });
+
+  return next;
+}
+
+function populateCopyForm(rawCopy) {
+  const copy = normalizeCopy(rawCopy);
+  Object.entries(COPY_INPUT_IDS).forEach(([key, id]) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.value = copy[key] || DEFAULT_COPY[key] || "";
+  });
+}
+
+function readCopyForm() {
+  const next = { ...DEFAULT_COPY };
+  Object.entries(COPY_INPUT_IDS).forEach(([key, id]) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    const value = String(input.value || "").trim();
+    next[key] = value || DEFAULT_COPY[key];
+  });
+  return next;
+}
+
+async function loadDashboard({ forceSync = false } = {}) {
   const dashboard = await request("/api/dashboard", { method: "GET" });
   renderProfile(dashboard.profile_status);
   renderWidgets(dashboard.widgets || []);
 
   if (dashboard.theme && window.MeowTheme) {
-    window.MeowTheme.applyTheme(dashboard.theme);
+    window.MeowTheme.applyTheme(dashboard.theme, dashboard.custom_theme || null);
     applyThemeSelectionVisual(dashboard.theme);
+  }
+
+  if (forceSync || !customThemeInitialized) {
+    populateCustomThemeForm(dashboard.custom_theme || {});
+    customThemeInitialized = true;
+  }
+
+  if (forceSync || !copyInitialized) {
+    populateCopyForm(dashboard.copy || DEFAULT_COPY);
+    copyInitialized = true;
   }
 }
 
@@ -417,7 +553,7 @@ async function updateProfile(state, note) {
     },
     { admin: true },
   );
-  await loadDashboard();
+  await loadDashboard({ forceSync: false });
 }
 
 function bindProfileActions() {
@@ -466,7 +602,7 @@ function bindMinecraftForm() {
         { admin: true },
       );
       form.reset();
-      await loadDashboard();
+      await loadDashboard({ forceSync: false });
     } catch (error) {
       alert(error.message);
     }
@@ -482,7 +618,7 @@ function bindGlobalRefresh() {
           request(`/api/widgets/${widget.id}/refresh`, { method: "POST", body: "{}" }, { admin: true }),
         ),
       );
-      await loadDashboard();
+      await loadDashboard({ forceSync: false });
     } catch (error) {
       alert(error.message);
     }
@@ -502,8 +638,87 @@ function bindThemePanel() {
       renderThemeGrid(themeSearchInput.value);
     });
   }
+}
 
-  refreshThemeFromServer();
+function bindCustomThemePanel() {
+  if (!customThemeForm || !window.MeowTheme) return;
+
+  ["custom-font-scale", "custom-radius-scale", "custom-shadow-strength"].forEach((id) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.addEventListener("input", updateCustomThemeRangeOutputs);
+  });
+
+  customThemePreviewBtn?.addEventListener("click", () => {
+    try {
+      const config = readCustomThemeForm();
+      window.MeowTheme.previewCustomTheme(config, activeThemeId || window.MeowTheme.getCurrentTheme());
+      setCustomThemeMessage("已应用本地预览（未保存）。");
+    } catch (error) {
+      setCustomThemeMessage(`预览失败：${error.message}`, true);
+    }
+  });
+
+  customThemeSaveBtn?.addEventListener("click", async () => {
+    if (!adminToken) {
+      setCustomThemeMessage("请先登录后再保存。", true);
+      return;
+    }
+
+    try {
+      const config = readCustomThemeForm();
+      const result = await window.MeowTheme.saveCustomTheme(
+        config,
+        adminToken,
+        activeThemeId || window.MeowTheme.getCurrentTheme(),
+      );
+      customThemeInitialized = false;
+      await loadDashboard({ forceSync: true });
+      setCustomThemeMessage(`自定义主题已保存并生效（基于 ${getThemeName(result.theme)}）。`);
+    } catch (error) {
+      setCustomThemeMessage(`保存失败：${error.message}`, true);
+    }
+  });
+
+  customThemeResetBtn?.addEventListener("click", async () => {
+    const defaults = window.MeowTheme.normalizeCustomTheme({});
+    populateCustomThemeForm(defaults);
+    window.MeowTheme.previewCustomTheme(defaults, activeThemeId || window.MeowTheme.getCurrentTheme());
+    setCustomThemeMessage("已恢复默认自定义参数，你可以直接保存。", false);
+  });
+}
+
+function bindCopyPanel() {
+  if (!copyForm) return;
+
+  copySaveBtn?.addEventListener("click", async () => {
+    if (!adminToken) {
+      setCopyMessage("请先登录后再保存文案。", true);
+      return;
+    }
+
+    try {
+      const payload = readCopyForm();
+      await request(
+        "/api/copy",
+        {
+          method: "POST",
+          body: JSON.stringify({ copy: payload }),
+        },
+        { admin: true },
+      );
+      copyInitialized = false;
+      await loadDashboard({ forceSync: true });
+      setCopyMessage("公开页文案已保存。", false);
+    } catch (error) {
+      setCopyMessage(`保存失败：${error.message}`, true);
+    }
+  });
+
+  copyResetBtn?.addEventListener("click", () => {
+    populateCopyForm(DEFAULT_COPY);
+    setCopyMessage("已恢复默认文案，点击“保存文案”后生效。", false);
+  });
 }
 
 function openAuthModal() {
@@ -512,6 +727,8 @@ function openAuthModal() {
   rotateForm.classList.add("hidden");
   setAuthMessage("");
   setThemeMessage("");
+  setCustomThemeMessage("");
+  setCopyMessage("");
   document.getElementById("login-token").value = "";
   document.getElementById("new-token").value = "";
   document.getElementById("confirm-token").value = "";
@@ -549,8 +766,9 @@ async function handleLoginSubmit(event) {
 
     adminToken = token;
     closeAuthModal();
-    await loadDashboard();
-    await refreshThemeFromServer();
+    customThemeInitialized = false;
+    copyInitialized = false;
+    await loadDashboard({ forceSync: true });
   } catch (error) {
     const rl = formatRateLimitInfo(error.rateLimit);
     if (error.status === 429 && error.retryAfter > 0) {
@@ -589,8 +807,9 @@ async function handleRotateSubmit(event) {
     adminToken = newToken;
     pendingLoginToken = "";
     closeAuthModal();
-    await loadDashboard();
-    await refreshThemeFromServer();
+    customThemeInitialized = false;
+    copyInitialized = false;
+    await loadDashboard({ forceSync: true });
   } catch (error) {
     const rl = formatRateLimitInfo(error.rateLimit);
     if (error.status === 429 && error.retryAfter > 0) {
@@ -618,7 +837,10 @@ function init() {
   bindMinecraftForm();
   bindGlobalRefresh();
   bindThemePanel();
+  bindCustomThemePanel();
+  bindCopyPanel();
 
+  updateCustomThemeRangeOutputs();
   initialized = true;
 }
 
@@ -627,9 +849,8 @@ openAuthModal();
 setInterval(async () => {
   if (!adminToken) return;
   try {
-    await loadDashboard();
+    await loadDashboard({ forceSync: false });
   } catch {
     // Ignore periodic refresh errors in background; manual actions surface errors.
   }
 }, 10000);
-

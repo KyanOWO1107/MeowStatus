@@ -4,6 +4,27 @@ const updatedAtEl = document.getElementById("current-updated-at");
 const widgetListEl = document.getElementById("widget-list");
 const widgetTemplate = document.getElementById("widget-template");
 
+const publicEyebrowEl = document.getElementById("public-eyebrow");
+const publicTitleEl = document.getElementById("public-title");
+const publicSubtitleEl = document.getElementById("public-subtitle");
+const publicWidgetsTitleEl = document.getElementById("public-widgets-title");
+const publicStateLabelEl = document.getElementById("public-state-label");
+const publicNoteLabelEl = document.getElementById("public-note-label");
+const publicUpdatedLabelEl = document.getElementById("public-updated-label");
+
+const DEFAULT_COPY = {
+  public_eyebrow: "MEOW STATUS HUB",
+  public_title: "MeowStatus Live Board",
+  public_subtitle: "公开状态展示页（只读）",
+  public_widgets_title: "挂件状态",
+  public_state_label: "当前状态",
+  public_note_label: "备注",
+  public_updated_label: "更新时间",
+  public_empty_widgets: "暂时没有挂件数据。",
+};
+
+let currentCopy = { ...DEFAULT_COPY };
+
 const STATE_LABELS = {
   working: "工作中",
   studying: "学习中",
@@ -75,6 +96,33 @@ function applyWidgetIcon(node, payload) {
   }
 }
 
+function normalizeCopy(rawCopy) {
+  const next = { ...DEFAULT_COPY };
+  if (!rawCopy || typeof rawCopy !== "object") {
+    return next;
+  }
+
+  Object.keys(DEFAULT_COPY).forEach((key) => {
+    const value = rawCopy[key];
+    if (typeof value === "string" && value.trim()) {
+      next[key] = value.trim();
+    }
+  });
+  return next;
+}
+
+function applyCopy(rawCopy) {
+  currentCopy = normalizeCopy(rawCopy);
+
+  if (publicEyebrowEl) publicEyebrowEl.textContent = currentCopy.public_eyebrow;
+  if (publicTitleEl) publicTitleEl.textContent = currentCopy.public_title;
+  if (publicSubtitleEl) publicSubtitleEl.textContent = currentCopy.public_subtitle;
+  if (publicWidgetsTitleEl) publicWidgetsTitleEl.textContent = currentCopy.public_widgets_title;
+  if (publicStateLabelEl) publicStateLabelEl.textContent = currentCopy.public_state_label;
+  if (publicNoteLabelEl) publicNoteLabelEl.textContent = currentCopy.public_note_label;
+  if (publicUpdatedLabelEl) publicUpdatedLabelEl.textContent = currentCopy.public_updated_label;
+}
+
 async function request(path) {
   const response = await fetch(path);
   const body = await response.json().catch(() => ({}));
@@ -96,7 +144,7 @@ function renderWidgets(widgets) {
   if (!widgets.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "暂时没有挂件数据。";
+    empty.textContent = currentCopy.public_empty_widgets;
     widgetListEl.appendChild(empty);
     return;
   }
@@ -128,15 +176,16 @@ async function loadDashboard() {
   try {
     const dashboard = await request("/api/dashboard");
     renderProfile(dashboard.profile_status);
+    applyCopy(dashboard.copy);
     renderWidgets(dashboard.widgets || []);
     if (dashboard.theme && window.MeowTheme) {
-      window.MeowTheme.applyTheme(dashboard.theme);
+      window.MeowTheme.applyTheme(dashboard.theme, dashboard.custom_theme || null);
     }
   } catch (error) {
     console.error(error);
   }
 }
 
+applyCopy(DEFAULT_COPY);
 loadDashboard();
 setInterval(loadDashboard, 10000);
-

@@ -10,24 +10,24 @@
     <main class="layout">
       <section class="panel panel-wide topbar-panel">
         <div class="brand-block">
-          <p class="eyebrow">MEOW STATUS HUB</p>
-          <h1>MeowStatus Live Board</h1>
-          <p class="subtitle">公开状态展示页（只读）</p>
+          <p id="public-eyebrow" class="eyebrow">MEOW STATUS HUB</p>
+          <h1 id="public-title">MeowStatus Live Board</h1>
+          <p id="public-subtitle" class="subtitle">公开状态展示页（只读）</p>
         </div>
       </section>
 
       <section class="panel panel-wide status-hero">
         <div class="hero-main">
-          <span class="label">当前状态</span>
+          <span id="public-state-label" class="label">当前状态</span>
           <strong id="current-state" class="state-value">-</strong>
         </div>
         <div class="hero-meta-grid">
           <div class="hero-meta-item">
-            <span class="label">备注</span>
+            <span id="public-note-label" class="label">备注</span>
             <span id="current-note" class="meta-value">-</span>
           </div>
           <div class="hero-meta-item">
-            <span class="label">更新时间</span>
+            <span id="public-updated-label" class="label">更新时间</span>
             <span id="current-updated-at" class="meta-value">-</span>
           </div>
         </div>
@@ -35,7 +35,7 @@
 
       <section class="panel panel-wide">
         <div class="panel-head">
-          <h2>挂件状态</h2>
+          <h2 id="public-widgets-title">挂件状态</h2>
         </div>
         <div id="widget-list" class="widget-list"></div>
       </section>
@@ -66,3 +66,4 @@
     <script src="/static/public.js"></script>
   </body>
 </html>
+

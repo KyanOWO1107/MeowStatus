@@ -118,6 +118,127 @@
         </div>
         <div id="theme-grid" class="theme-grid"></div>
         <p id="theme-message" class="hint"></p>
+
+        <div class="panel-head" style="margin-top: 14px">
+          <h3>自定义主题编辑器</h3>
+          <span class="hint">可在预设主题基础上叠加自定义样式</span>
+        </div>
+        <form id="custom-theme-form" class="custom-theme-grid">
+          <label class="inline-field">
+            <input id="custom-enabled" type="checkbox" />
+            <span>启用自定义主题</span>
+          </label>
+          <label>
+            背景色
+            <input id="custom-background" type="color" value="#37474f" />
+          </label>
+          <label>
+            辅助色
+            <input id="custom-accent" type="color" value="#2196f3" />
+          </label>
+          <label>
+            明暗模式
+            <select id="custom-mode">
+              <option value="auto">自动（跟随预设）</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </label>
+          <label>
+            背景样式
+            <select id="custom-background-style">
+              <option value="gradient">渐变</option>
+              <option value="solid">纯色</option>
+            </select>
+          </label>
+          <label>
+            标题字体
+            <select id="custom-heading-font">
+              <option value="default">Default</option>
+              <option value="display">Display</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+            </select>
+          </label>
+          <label>
+            正文字体
+            <select id="custom-body-font">
+              <option value="default">Default</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+              <option value="display">Display</option>
+            </select>
+          </label>
+          <label class="range-field">
+            字号缩放（85%-130%）
+            <input id="custom-font-scale" type="range" min="85" max="130" step="1" value="100" />
+            <span id="custom-font-scale-output" class="range-field-output">100%</span>
+          </label>
+          <label class="range-field">
+            圆角缩放（75%-150%）
+            <input id="custom-radius-scale" type="range" min="75" max="150" step="1" value="100" />
+            <span id="custom-radius-scale-output" class="range-field-output">100%</span>
+          </label>
+          <label class="range-field">
+            阴影强度（50%-180%）
+            <input id="custom-shadow-strength" type="range" min="50" max="180" step="1" value="100" />
+            <span id="custom-shadow-strength-output" class="range-field-output">100%</span>
+          </label>
+        </form>
+        <div class="custom-theme-actions">
+          <button id="custom-preview-btn" type="button">预览</button>
+          <button id="custom-theme-save-btn" type="button">保存自定义主题</button>
+          <button id="custom-theme-reset-btn" type="button">恢复默认自定义</button>
+        </div>
+        <p id="custom-theme-message" class="hint"></p>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-head">
+          <h2>公开页文案</h2>
+          <span class="hint">可自定义公开页标题与常用标签</span>
+        </div>
+        <form id="copy-form" class="copy-grid">
+          <label>
+            顶部眉标
+            <input id="copy-public-eyebrow" type="text" maxlength="80" />
+          </label>
+          <label>
+            页面主标题
+            <input id="copy-public-title" type="text" maxlength="80" />
+          </label>
+          <label>
+            页面副标题
+            <input id="copy-public-subtitle" type="text" maxlength="80" />
+          </label>
+          <label>
+            挂件区标题
+            <input id="copy-public-widgets-title" type="text" maxlength="80" />
+          </label>
+          <label>
+            “当前状态”标签
+            <input id="copy-public-state-label" type="text" maxlength="80" />
+          </label>
+          <label>
+            “备注”标签
+            <input id="copy-public-note-label" type="text" maxlength="80" />
+          </label>
+          <label>
+            “更新时间”标签
+            <input id="copy-public-updated-label" type="text" maxlength="80" />
+          </label>
+          <label>
+            空挂件提示文案
+            <input id="copy-public-empty-widgets" type="text" maxlength="80" />
+          </label>
+        </form>
+        <div class="copy-actions">
+          <button id="copy-save-btn" type="button">保存文案</button>
+          <button id="copy-reset-btn" type="button">恢复默认文案</button>
+        </div>
+        <p id="copy-message" class="hint"></p>
       </section>
 
       <section class="panel panel-wide">
@@ -163,3 +284,4 @@
     <script src="/static/admin.js"></script>
   </body>
 </html>
+

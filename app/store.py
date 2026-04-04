@@ -14,10 +14,35 @@ from typing import Any
 ADMIN_TOKEN_HASH_KEY = "admin_token_hash"
 ADMIN_TOKEN_CHANGE_REQUIRED_KEY = "admin_token_change_required"
 UI_THEME_KEY = "ui_theme"
+UI_CUSTOM_THEME_KEY = "ui_custom_theme"
+UI_COPY_KEY = "ui_copy"
 
 PBKDF2_ALGORITHM = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 390000
 PBKDF2_SALT_BYTES = 16
+DEFAULT_UI_CUSTOM_THEME: dict[str, Any] = {
+    "enabled": False,
+    "background": "#37474f",
+    "accent": "#2196f3",
+    "mode": "auto",
+    "background_style": "gradient",
+    "heading_font": "default",
+    "body_font": "default",
+    "font_scale": 100,
+    "radius_scale": 100,
+    "shadow_strength": 100,
+}
+
+DEFAULT_UI_COPY: dict[str, str] = {
+    "public_eyebrow": "MEOW STATUS HUB",
+    "public_title": "MeowStatus Live Board",
+    "public_subtitle": "公开状态展示页（只读）",
+    "public_widgets_title": "挂件状态",
+    "public_state_label": "当前状态",
+    "public_note_label": "备注",
+    "public_updated_label": "更新时间",
+    "public_empty_widgets": "暂时没有挂件数据。",
+}
 
 
 def utc_now_iso() -> str:
@@ -224,6 +249,24 @@ class StatusStore:
             self._conn.execute(
                 "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
                 (UI_THEME_KEY, "bluery", now),
+            )
+
+        custom_theme_row = self._conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (UI_CUSTOM_THEME_KEY,)
+        ).fetchone()
+        if custom_theme_row is None:
+            self._conn.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (UI_CUSTOM_THEME_KEY, json.dumps(DEFAULT_UI_CUSTOM_THEME, ensure_ascii=False), now),
+            )
+
+        copy_row = self._conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (UI_COPY_KEY,)
+        ).fetchone()
+        if copy_row is None:
+            self._conn.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (UI_COPY_KEY, json.dumps(DEFAULT_UI_COPY, ensure_ascii=False), now),
             )
 
         self._conn.commit()
@@ -478,6 +521,56 @@ class StatusStore:
             )
             self._conn.commit()
         return normalized
+    def _get_json_setting(self, key: str, default: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+
+        if row is None:
+            return dict(default)
+
+        raw = row["value"]
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return dict(default)
+
+        if not isinstance(parsed, dict):
+            return dict(default)
+
+        merged = dict(default)
+        merged.update(parsed)
+        return merged
+
+    def _set_json_setting(self, key: str, value: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now_iso()
+        encoded = json.dumps(value, ensure_ascii=False)
+        with self._lock:
+            self._conn.execute(
+                "UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?",
+                (encoded, now, key),
+            )
+            self._conn.commit()
+
+        return value
+
+    def get_ui_custom_theme(self) -> dict[str, Any]:
+        return self._get_json_setting(UI_CUSTOM_THEME_KEY, DEFAULT_UI_CUSTOM_THEME)
+
+    def set_ui_custom_theme(self, custom_theme: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(DEFAULT_UI_CUSTOM_THEME)
+        merged.update(custom_theme)
+        return self._set_json_setting(UI_CUSTOM_THEME_KEY, merged)
+
+    def get_ui_copy(self) -> dict[str, str]:
+        raw = self._get_json_setting(UI_COPY_KEY, DEFAULT_UI_COPY)
+        return {key: str(value) for key, value in raw.items()}
+
+    def set_ui_copy(self, copy: dict[str, str]) -> dict[str, str]:
+        merged = dict(DEFAULT_UI_COPY)
+        merged.update({key: str(value) for key, value in copy.items()})
+        return self._set_json_setting(UI_COPY_KEY, merged)
 
     def _widget_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         payload_raw = row["last_payload_json"]
@@ -509,4 +602,8 @@ class StatusStore:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+
+
+
 

@@ -1,6 +1,27 @@
 (function () {
   const DEFAULT_THEME_ID = "bluery";
 
+  const DEFAULT_CUSTOM_THEME = {
+    enabled: false,
+    background: "#37474f",
+    accent: "#2196f3",
+    mode: "auto",
+    background_style: "gradient",
+    heading_font: "default",
+    body_font: "default",
+    font_scale: 100,
+    radius_scale: 100,
+    shadow_strength: 100,
+  };
+
+  const FONT_STACKS = {
+    default: '"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+    mono: '"Cascadia Mono", "JetBrains Mono", "Consolas", "Noto Sans Mono CJK SC", monospace',
+    serif: '"Source Han Serif SC", "Noto Serif SC", "STSong", "Songti SC", serif',
+    round: '"Nunito", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+    display: '"Trebuchet MS", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+  };
+
   const THEMES = [
     { id: "bluery", name: "Bluery", background: "#37474F", accent: "#2196f3", mode: "dark" },
     { id: "midnight", name: "Midnight", background: "#181848", accent: "#c5cae9", mode: "dark" },
@@ -35,6 +56,13 @@
 
   const THEMES_BY_ID = new Map(THEMES.map((theme) => [theme.id, theme]));
   let currentThemeId = DEFAULT_THEME_ID;
+  let currentCustomTheme = { ...DEFAULT_CUSTOM_THEME };
+
+  function clampInt(value, min, max, fallback) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.max(min, Math.min(max, Math.round(num)));
+  }
 
   function normalizeHex(input) {
     const raw = String(input || "").trim();
@@ -147,10 +175,85 @@
     };
   }
 
-  function applyPalette(themeId) {
-    const theme = THEMES_BY_ID.get(themeId) || THEMES_BY_ID.get(DEFAULT_THEME_ID);
+  function scaleShadowAlpha(shadow, factor) {
+    const normalizedFactor = Math.max(0.2, Math.min(2, Number(factor) || 1));
+    return String(shadow).replace(
+      /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/,
+      (_, r, g, b, a) => {
+        const base = Number(a);
+        const next = Math.max(0.03, Math.min(0.95, base * normalizedFactor));
+        return `rgba(${r}, ${g}, ${b}, ${next.toFixed(3)})`;
+      },
+    );
+  }
+
+  function normalizeCustomTheme(input) {
+    const raw = typeof input === "object" && input ? input : {};
+    return {
+      enabled: Boolean(raw.enabled),
+      background: normalizeHex(raw.background || DEFAULT_CUSTOM_THEME.background),
+      accent: normalizeHex(raw.accent || DEFAULT_CUSTOM_THEME.accent),
+      mode: ["auto", "light", "dark"].includes(String(raw.mode || "").toLowerCase())
+        ? String(raw.mode).toLowerCase()
+        : DEFAULT_CUSTOM_THEME.mode,
+      background_style: ["gradient", "solid"].includes(String(raw.background_style || "").toLowerCase())
+        ? String(raw.background_style).toLowerCase()
+        : DEFAULT_CUSTOM_THEME.background_style,
+      heading_font: Object.prototype.hasOwnProperty.call(FONT_STACKS, String(raw.heading_font || "").toLowerCase())
+        ? String(raw.heading_font).toLowerCase()
+        : DEFAULT_CUSTOM_THEME.heading_font,
+      body_font: Object.prototype.hasOwnProperty.call(FONT_STACKS, String(raw.body_font || "").toLowerCase())
+        ? String(raw.body_font).toLowerCase()
+        : DEFAULT_CUSTOM_THEME.body_font,
+      font_scale: clampInt(raw.font_scale, 85, 130, DEFAULT_CUSTOM_THEME.font_scale),
+      radius_scale: clampInt(raw.radius_scale, 75, 150, DEFAULT_CUSTOM_THEME.radius_scale),
+      shadow_strength: clampInt(raw.shadow_strength, 50, 180, DEFAULT_CUSTOM_THEME.shadow_strength),
+    };
+  }
+
+  function resolveTheme(themeId, customTheme) {
+    const base = THEMES_BY_ID.get(themeId) || THEMES_BY_ID.get(DEFAULT_THEME_ID);
+    const normalized = normalizeCustomTheme(customTheme);
+
+    if (!normalized.enabled) {
+      return {
+        id: base.id,
+        name: base.name,
+        background: base.background,
+        accent: base.accent,
+        mode: base.mode,
+        background_style: normalized.background_style,
+      };
+    }
+
+    return {
+      id: base.id,
+      name: `${base.name} (Custom)`,
+      background: normalized.background,
+      accent: normalized.accent,
+      mode: normalized.mode === "auto" ? base.mode : normalized.mode,
+      background_style: normalized.background_style,
+    };
+  }
+
+  function syncThemeOptions() {
+    document.querySelectorAll(".theme-option").forEach((button) => {
+      const active = button.dataset.themeId === currentThemeId;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function applyPalette(themeId, customTheme = currentCustomTheme) {
+    const normalizedCustom = normalizeCustomTheme(customTheme);
+    const theme = resolveTheme(themeId, normalizedCustom);
     const palette = makePalette(theme);
+    if (theme.background_style === "solid") {
+      palette.bgBottom = palette.bgTop;
+    }
+
     const root = document.documentElement;
+    const shadowFactor = (normalizedCustom.shadow_strength || 100) / 100;
 
     root.setAttribute("data-theme", theme.id);
     root.style.setProperty("--bg-top", palette.bgTop);
@@ -165,21 +268,19 @@
     root.style.setProperty("--border", palette.border);
     root.style.setProperty("--danger", palette.danger);
     root.style.setProperty("--danger-strong", palette.dangerStrong);
-    root.style.setProperty("--shadow", palette.shadow);
+    root.style.setProperty("--shadow", scaleShadowAlpha(palette.shadow, shadowFactor));
     root.style.setProperty("--input-bg", palette.inputBg);
     root.style.setProperty("--bg-glow-secondary", palette.glowSecondary);
 
+    root.style.setProperty("--heading-font", FONT_STACKS[normalizedCustom.heading_font] || FONT_STACKS.default);
+    root.style.setProperty("--body-font", FONT_STACKS[normalizedCustom.body_font] || FONT_STACKS.default);
+    root.style.setProperty("--font-scale", (normalizedCustom.font_scale / 100).toFixed(3));
+    root.style.setProperty("--radius-scale", (normalizedCustom.radius_scale / 100).toFixed(3));
+
     currentThemeId = theme.id;
+    currentCustomTheme = normalizedCustom;
     syncThemeOptions();
     return theme.id;
-  }
-
-  function syncThemeOptions() {
-    document.querySelectorAll(".theme-option").forEach((button) => {
-      const active = button.dataset.themeId === currentThemeId;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
-    });
   }
 
   async function loadRemoteTheme() {
@@ -190,8 +291,9 @@
     }
 
     const themeId = THEMES_BY_ID.has(body.theme) ? body.theme : DEFAULT_THEME_ID;
-    applyPalette(themeId);
-    return { theme: themeId };
+    const customTheme = normalizeCustomTheme(body.custom_theme);
+    applyPalette(themeId, customTheme);
+    return { theme: themeId, custom_theme: customTheme };
   }
 
   async function saveTheme(themeId, adminToken) {
@@ -222,16 +324,62 @@
     }
 
     const savedId = THEMES_BY_ID.has(body.theme) ? body.theme : normalized;
-    applyPalette(savedId);
-    return { theme: savedId };
+    const customTheme = normalizeCustomTheme(body.custom_theme || currentCustomTheme);
+    applyPalette(savedId, customTheme);
+    return { theme: savedId, custom_theme: customTheme };
+  }
+
+  async function saveCustomTheme(customTheme, adminToken, themeId = currentThemeId) {
+    const normalizedTheme = THEMES_BY_ID.has(themeId) ? themeId : DEFAULT_THEME_ID;
+    const token = String(adminToken || "").trim();
+    if (!token) {
+      throw new Error("缺少管理员 Token");
+    }
+
+    const payload = {
+      theme: normalizedTheme,
+      custom_theme: normalizeCustomTheme(customTheme),
+    };
+
+    const response = await fetch("/api/theme", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Token": token,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(body.error || `Theme update failed (${response.status})`);
+      error.status = response.status;
+      throw error;
+    }
+
+    const nextTheme = THEMES_BY_ID.has(body.theme) ? body.theme : normalizedTheme;
+    const nextCustomTheme = normalizeCustomTheme(body.custom_theme);
+    applyPalette(nextTheme, nextCustomTheme);
+    return { theme: nextTheme, custom_theme: nextCustomTheme };
+  }
+
+  function previewCustomTheme(customTheme, themeId = currentThemeId) {
+    const normalizedTheme = THEMES_BY_ID.has(themeId) ? themeId : DEFAULT_THEME_ID;
+    const normalizedCustom = normalizeCustomTheme(customTheme);
+    applyPalette(normalizedTheme, normalizedCustom);
+    return { theme: normalizedTheme, custom_theme: normalizedCustom };
   }
 
   function getThemes() {
     return THEMES.map((theme) => ({ ...theme }));
   }
 
+  function getCurrentCustomTheme() {
+    return { ...currentCustomTheme };
+  }
+
   function init() {
-    applyPalette(DEFAULT_THEME_ID);
+    applyPalette(DEFAULT_THEME_ID, DEFAULT_CUSTOM_THEME);
     loadRemoteTheme().catch(() => {
       // Keep default theme when remote loading fails.
     });
@@ -241,8 +389,12 @@
     applyTheme: applyPalette,
     getThemes,
     getCurrentTheme: () => currentThemeId,
+    getCurrentCustomTheme,
+    normalizeCustomTheme,
+    previewCustomTheme,
     loadRemoteTheme,
     saveTheme,
+    saveCustomTheme,
   };
 
   if (document.readyState === "loading") {
