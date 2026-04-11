@@ -179,7 +179,7 @@ async function loadDashboard() {
     applyCopy(dashboard.copy);
     renderWidgets(dashboard.widgets || []);
     if (dashboard.theme && window.MeowTheme) {
-      window.MeowTheme.applyTheme(dashboard.theme, dashboard.custom_theme || null);
+      window.MeowTheme.applyTheme(dashboard.theme, dashboard.custom_theme || null, dashboard.custom_assets || null);
     }
   } catch (error) {
     console.error(error);

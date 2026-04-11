@@ -30,6 +30,13 @@ const copyForm = document.getElementById("copy-form");
 const copySaveBtn = document.getElementById("copy-save-btn");
 const copyResetBtn = document.getElementById("copy-reset-btn");
 
+const assetForm = document.getElementById("asset-form");
+const assetMessageEl = document.getElementById("asset-message");
+const assetLicenseSummaryEl = document.getElementById("asset-license-summary");
+const assetPreviewBtn = document.getElementById("asset-preview-btn");
+const assetSaveBtn = document.getElementById("asset-save-btn");
+const assetResetBtn = document.getElementById("asset-reset-btn");
+
 const DEFAULT_COPY = {
   public_eyebrow: "MEOW STATUS HUB",
   public_title: "MeowStatus Live Board",
@@ -40,6 +47,22 @@ const DEFAULT_COPY = {
   public_updated_label: "更新时间",
   public_empty_widgets: "暂时没有挂件数据。",
 };
+
+const DEFAULT_CUSTOM_ASSETS = {
+  background_enabled: false,
+  background_file: "",
+  background_opacity: 58,
+  font_enabled: false,
+  font_latin_file: "",
+  font_cjk_file: "",
+};
+
+const DEFAULT_THEME_FONT_SETTINGS = {
+  heading_font: "default",
+  body_font: "default",
+};
+
+const SUPPORTED_THEME_FONTS = new Set(["default", "display", "round", "serif", "mono"]);
 
 const COPY_INPUT_IDS = {
   public_eyebrow: "copy-public-eyebrow",
@@ -63,6 +86,8 @@ let allThemes = [];
 let activeThemeId = "";
 let customThemeInitialized = false;
 let copyInitialized = false;
+let assetInitialized = false;
+let localAssetCatalog = { backgrounds: [], fonts: [], allowed_font_paths: [] };
 
 function formatTime(value) {
   if (!value) return "-";
@@ -148,6 +173,12 @@ function setCopyMessage(message, isError = false) {
   if (!copyMessageEl) return;
   copyMessageEl.textContent = message || "";
   copyMessageEl.classList.toggle("theme-message-error", isError);
+}
+
+function setAssetMessage(message, isError = false) {
+  if (!assetMessageEl) return;
+  assetMessageEl.textContent = message || "";
+  assetMessageEl.classList.toggle("theme-message-error", isError);
 }
 
 function getThemeName(themeId) {
@@ -448,14 +479,15 @@ function updateCustomThemeRangeOutputs() {
 }
 
 function readCustomThemeForm() {
+  const current = window.MeowTheme.getCurrentCustomTheme?.() || DEFAULT_THEME_FONT_SETTINGS;
   return window.MeowTheme.normalizeCustomTheme({
     enabled: document.getElementById("custom-enabled")?.checked,
     background: document.getElementById("custom-background")?.value,
     accent: document.getElementById("custom-accent")?.value,
     mode: document.getElementById("custom-mode")?.value,
     background_style: document.getElementById("custom-background-style")?.value,
-    heading_font: document.getElementById("custom-heading-font")?.value,
-    body_font: document.getElementById("custom-body-font")?.value,
+    heading_font: current.heading_font || DEFAULT_THEME_FONT_SETTINGS.heading_font,
+    body_font: current.body_font || DEFAULT_THEME_FONT_SETTINGS.body_font,
     font_scale: Number(document.getElementById("custom-font-scale")?.value || 100),
     radius_scale: Number(document.getElementById("custom-radius-scale")?.value || 100),
     shadow_strength: Number(document.getElementById("custom-shadow-strength")?.value || 100),
@@ -478,8 +510,6 @@ function populateCustomThemeForm(rawTheme) {
   setValue("custom-accent", theme.accent);
   setValue("custom-mode", theme.mode);
   setValue("custom-background-style", theme.background_style);
-  setValue("custom-heading-font", theme.heading_font);
-  setValue("custom-body-font", theme.body_font);
   setValue("custom-font-scale", theme.font_scale);
   setValue("custom-radius-scale", theme.radius_scale);
   setValue("custom-shadow-strength", theme.shadow_strength);
@@ -523,14 +553,153 @@ function readCopyForm() {
   return next;
 }
 
+function updateAssetOpacityOutput() {
+  const input = document.getElementById("asset-bg-opacity");
+  const output = document.getElementById("asset-bg-opacity-output");
+  if (!input || !output) return;
+  output.textContent = `${input.value}%`;
+}
+
+function normalizeCustomAssetsConfig(raw) {
+  return window.MeowTheme.normalizeCustomAssets(raw || DEFAULT_CUSTOM_ASSETS);
+}
+
+function formatFontOptionLabel(font) {
+  const status = String(font?.license_status || "review");
+  if (status === "allowed") return `${font.name} (Open)`;
+  if (status === "blocked") return `${font.name} (Blocked)`;
+  return `${font.name} (Review)`;
+}
+
+function fillSelectOptions(selectEl, items, getValue, getLabel) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "不使用";
+  selectEl.appendChild(empty);
+
+  items.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = getValue(item);
+    option.textContent = getLabel(item);
+    selectEl.appendChild(option);
+  });
+}
+
+function updateAssetLicenseSummary() {
+  if (!assetLicenseSummaryEl) return;
+  const fonts = Array.isArray(localAssetCatalog.fonts) ? localAssetCatalog.fonts : [];
+  const allowed = fonts.filter((f) => f.license_status === "allowed").length;
+  const review = fonts.filter((f) => f.license_status === "review").length;
+  const blocked = fonts.filter((f) => f.license_status === "blocked").length;
+  assetLicenseSummaryEl.textContent = `字体扫描结果：可用 ${allowed}，待确认 ${review}，已禁用 ${blocked}。`;
+}
+
+async function loadLocalAssetCatalog() {
+  if (!adminToken) return;
+  const catalog = await request("/api/admin/local-assets", { method: "GET" }, { admin: true });
+  localAssetCatalog = {
+    backgrounds: Array.isArray(catalog.backgrounds) ? catalog.backgrounds : [],
+    fonts: Array.isArray(catalog.fonts) ? catalog.fonts : [],
+    allowed_font_paths: Array.isArray(catalog.allowed_font_paths) ? catalog.allowed_font_paths : [],
+  };
+
+  const allowedFonts = localAssetCatalog.fonts.filter((font) => font.license_status === "allowed");
+  fillSelectOptions(
+    document.getElementById("asset-bg-file"),
+    localAssetCatalog.backgrounds,
+    (item) => item.path,
+    (item) => item.name,
+  );
+  fillSelectOptions(
+    document.getElementById("asset-font-latin"),
+    allowedFonts,
+    (item) => item.path,
+    (item) => formatFontOptionLabel(item),
+  );
+  fillSelectOptions(
+    document.getElementById("asset-font-cjk"),
+    allowedFonts,
+    (item) => item.path,
+    (item) => formatFontOptionLabel(item),
+  );
+
+  updateAssetLicenseSummary();
+}
+
+function populateAssetForm(rawAssets, rawTheme = null) {
+  const assets = normalizeCustomAssetsConfig(rawAssets || DEFAULT_CUSTOM_ASSETS);
+
+  const themeFonts = normalizeThemeFontSettings(rawTheme || window.MeowTheme.getCurrentCustomTheme?.() || DEFAULT_THEME_FONT_SETTINGS);
+
+  const bgEnabled = document.getElementById("asset-bg-enabled");
+  const bgFile = document.getElementById("asset-bg-file");
+  const bgOpacity = document.getElementById("asset-bg-opacity");
+  const fontEnabled = document.getElementById("asset-font-enabled");
+  const latin = document.getElementById("asset-font-latin");
+  const cjk = document.getElementById("asset-font-cjk");
+  const heading = document.getElementById("asset-theme-heading-font");
+  const body = document.getElementById("asset-theme-body-font");
+
+  if (bgEnabled) bgEnabled.checked = Boolean(assets.background_enabled);
+  if (bgFile) bgFile.value = assets.background_file || "";
+  if (bgOpacity) bgOpacity.value = String(assets.background_opacity ?? 58);
+  if (fontEnabled) fontEnabled.checked = Boolean(assets.font_enabled);
+  if (latin) latin.value = assets.font_latin_file || "";
+  if (cjk) cjk.value = assets.font_cjk_file || "";
+  if (heading) heading.value = themeFonts.heading_font;
+  if (body) body.value = themeFonts.body_font;
+
+  updateAssetOpacityOutput();
+}
+
+function readAssetForm() {
+  return normalizeCustomAssetsConfig({
+    background_enabled: document.getElementById("asset-bg-enabled")?.checked,
+    background_file: document.getElementById("asset-bg-file")?.value || "",
+    background_opacity: Number(document.getElementById("asset-bg-opacity")?.value || 58),
+    font_enabled: document.getElementById("asset-font-enabled")?.checked,
+    font_latin_file: document.getElementById("asset-font-latin")?.value || "",
+    font_cjk_file: document.getElementById("asset-font-cjk")?.value || "",
+  });
+}
+
+function normalizeThemeFontSettings(raw) {
+  const input = raw && typeof raw === "object" ? raw : {};
+  const heading = String(input.heading_font || DEFAULT_THEME_FONT_SETTINGS.heading_font).toLowerCase();
+  const body = String(input.body_font || DEFAULT_THEME_FONT_SETTINGS.body_font).toLowerCase();
+  return {
+    heading_font: SUPPORTED_THEME_FONTS.has(heading) ? heading : DEFAULT_THEME_FONT_SETTINGS.heading_font,
+    body_font: SUPPORTED_THEME_FONTS.has(body) ? body : DEFAULT_THEME_FONT_SETTINGS.body_font,
+  };
+}
+
+function readAssetThemeFontForm() {
+  return normalizeThemeFontSettings({
+    heading_font: document.getElementById("asset-theme-heading-font")?.value || DEFAULT_THEME_FONT_SETTINGS.heading_font,
+    body_font: document.getElementById("asset-theme-body-font")?.value || DEFAULT_THEME_FONT_SETTINGS.body_font,
+  });
+}
+
 async function loadDashboard({ forceSync = false } = {}) {
   const dashboard = await request("/api/dashboard", { method: "GET" });
   renderProfile(dashboard.profile_status);
   renderWidgets(dashboard.widgets || []);
 
   if (dashboard.theme && window.MeowTheme) {
-    window.MeowTheme.applyTheme(dashboard.theme, dashboard.custom_theme || null);
+    window.MeowTheme.applyTheme(dashboard.theme, dashboard.custom_theme || null, dashboard.custom_assets || null);
     applyThemeSelectionVisual(dashboard.theme);
+  }
+
+  if (adminToken && (forceSync || !assetInitialized)) {
+    try {
+      await loadLocalAssetCatalog();
+      populateAssetForm(dashboard.custom_assets || DEFAULT_CUSTOM_ASSETS, dashboard.custom_theme || null);
+      assetInitialized = true;
+    } catch (error) {
+      setAssetMessage(`素材清单读取失败：${error.message}`, true);
+    }
   }
 
   if (forceSync || !customThemeInitialized) {
@@ -681,10 +850,13 @@ function bindCustomThemePanel() {
   });
 
   customThemeResetBtn?.addEventListener("click", async () => {
+    const current = window.MeowTheme.getCurrentCustomTheme?.() || {};
     const defaults = window.MeowTheme.normalizeCustomTheme({});
+    defaults.heading_font = current.heading_font || defaults.heading_font;
+    defaults.body_font = current.body_font || defaults.body_font;
     populateCustomThemeForm(defaults);
     window.MeowTheme.previewCustomTheme(defaults, activeThemeId || window.MeowTheme.getCurrentTheme());
-    setCustomThemeMessage("已恢复默认自定义参数，你可以直接保存。", false);
+    setCustomThemeMessage("已恢复默认自定义参数（不影响字体设置），你可以直接保存。", false);
   });
 }
 
@@ -721,6 +893,69 @@ function bindCopyPanel() {
   });
 }
 
+function bindAssetPanel() {
+  if (!assetForm || !window.MeowTheme) return;
+
+  document.getElementById("asset-bg-opacity")?.addEventListener("input", updateAssetOpacityOutput);
+
+  assetPreviewBtn?.addEventListener("click", () => {
+    try {
+      const assets = readAssetForm();
+      const fontTheme = readAssetThemeFontForm();
+      const currentTheme = window.MeowTheme.getCurrentCustomTheme?.() || {};
+      const mergedTheme = window.MeowTheme.normalizeCustomTheme({ ...currentTheme, ...fontTheme });
+      window.MeowTheme.previewCustomTheme(mergedTheme, activeThemeId || window.MeowTheme.getCurrentTheme());
+      window.MeowTheme.previewCustomAssets(assets, activeThemeId || window.MeowTheme.getCurrentTheme(), mergedTheme);
+      setAssetMessage("已应用本地素材与字体预览（未保存）。", false);
+    } catch (error) {
+      setAssetMessage(`预览失败：${error.message}`, true);
+    }
+  });
+
+  assetSaveBtn?.addEventListener("click", async () => {
+    if (!adminToken) {
+      setAssetMessage("请先登录后再保存。", true);
+      return;
+    }
+
+    try {
+      const assets = readAssetForm();
+      const fontTheme = readAssetThemeFontForm();
+      const currentTheme = window.MeowTheme.getCurrentCustomTheme?.() || {};
+      const mergedTheme = window.MeowTheme.normalizeCustomTheme({ ...currentTheme, ...fontTheme });
+
+      await window.MeowTheme.saveCustomTheme(
+        mergedTheme,
+        adminToken,
+        activeThemeId || window.MeowTheme.getCurrentTheme(),
+      );
+      await window.MeowTheme.saveCustomAssets(assets, adminToken);
+
+      assetInitialized = false;
+      customThemeInitialized = false;
+      await loadDashboard({ forceSync: true });
+      setAssetMessage("本地素材与字体设置已保存并同步公开页。", false);
+    } catch (error) {
+      setAssetMessage(`保存失败：${error.message}`, true);
+    }
+  });
+
+  assetResetBtn?.addEventListener("click", () => {
+    const defaultAssets = window.MeowTheme.normalizeCustomAssets({});
+    const currentTheme = window.MeowTheme.getCurrentCustomTheme?.() || {};
+    const defaultFonts = normalizeThemeFontSettings({});
+    const mergedTheme = window.MeowTheme.normalizeCustomTheme({ ...currentTheme, ...defaultFonts });
+    populateAssetForm(defaultAssets, mergedTheme);
+    window.MeowTheme.previewCustomTheme(mergedTheme, activeThemeId || window.MeowTheme.getCurrentTheme());
+    window.MeowTheme.previewCustomAssets(
+      defaultAssets,
+      activeThemeId || window.MeowTheme.getCurrentTheme(),
+      mergedTheme,
+    );
+    setAssetMessage("已恢复本地素材与字体默认设置，点击保存后生效。", false);
+  });
+}
+
 function openAuthModal() {
   authModal.classList.remove("hidden");
   loginForm.classList.remove("hidden");
@@ -729,11 +964,13 @@ function openAuthModal() {
   setThemeMessage("");
   setCustomThemeMessage("");
   setCopyMessage("");
+  setAssetMessage("");
   document.getElementById("login-token").value = "";
   document.getElementById("new-token").value = "";
   document.getElementById("confirm-token").value = "";
   adminToken = "";
   pendingLoginToken = "";
+  assetInitialized = false;
 }
 
 function closeAuthModal() {
@@ -768,6 +1005,7 @@ async function handleLoginSubmit(event) {
     closeAuthModal();
     customThemeInitialized = false;
     copyInitialized = false;
+    assetInitialized = false;
     await loadDashboard({ forceSync: true });
   } catch (error) {
     const rl = formatRateLimitInfo(error.rateLimit);
@@ -809,6 +1047,7 @@ async function handleRotateSubmit(event) {
     closeAuthModal();
     customThemeInitialized = false;
     copyInitialized = false;
+    assetInitialized = false;
     await loadDashboard({ forceSync: true });
   } catch (error) {
     const rl = formatRateLimitInfo(error.rateLimit);
@@ -839,8 +1078,10 @@ function init() {
   bindThemePanel();
   bindCustomThemePanel();
   bindCopyPanel();
+  bindAssetPanel();
 
   updateCustomThemeRangeOutputs();
+  updateAssetOpacityOutput();
   initialized = true;
 }
 

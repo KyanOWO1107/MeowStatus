@@ -21,6 +21,7 @@ class AppConfig:
     log_dir: Path
     log_max_bytes: int
     log_backup_count: int
+    local_assets_dir: Path
 
 
 RESERVED_ADMIN_PATH_PREFIXES = (
@@ -93,6 +94,7 @@ def load_config() -> AppConfig:
     log_dir = Path(os.getenv("MEOWSTATUS_LOG_DIR", str(root_dir / "logs"))).resolve()
     log_max_bytes = _load_int_env("MEOWSTATUS_LOG_MAX_BYTES", 5 * 1024 * 1024, min_value=1024)
     log_backup_count = _load_int_env("MEOWSTATUS_LOG_BACKUP_COUNT", 5, min_value=1)
+    local_assets_dir = Path(os.getenv("MEOWSTATUS_LOCAL_ASSETS_DIR", str(root_dir / "@localonly"))).resolve()
 
     return AppConfig(
         host=host,
@@ -109,4 +111,7 @@ def load_config() -> AppConfig:
         log_dir=log_dir,
         log_max_bytes=log_max_bytes,
         log_backup_count=log_backup_count,
+        local_assets_dir=local_assets_dir,
     )
+
+

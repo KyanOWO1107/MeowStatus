@@ -18,6 +18,8 @@
   --bg-glow-secondary: rgba(33, 150, 243, 0.22);
   --font-scale: 1;
   --radius-scale: 1;
+  --bg-photo-url: none;
+  --bg-photo-opacity: 0;
 }
 
 * {
@@ -28,13 +30,25 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: var(--body-font);
+  font-family: var(--font-override-body, var(--body-font));
   font-size: calc(16px * var(--font-scale));
   background: linear-gradient(170deg, var(--bg-top), var(--bg-bottom));
   position: relative;
 }
 
-body::before,
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: var(--bg-photo-url);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--bg-photo-opacity);
+}
+
 body::after {
   content: "";
   position: fixed;
@@ -45,15 +59,6 @@ body::after {
   pointer-events: none;
   z-index: 0;
   opacity: 0.34;
-}
-
-body::before {
-  top: -12vw;
-  left: -12vw;
-  background: var(--accent-soft);
-}
-
-body::after {
   bottom: -16vw;
   right: -14vw;
   background: var(--bg-glow-secondary);
@@ -95,7 +100,7 @@ p {
 h1,
 h2,
 h3 {
-  font-family: var(--heading-font);
+  font-family: var(--font-override-heading, var(--heading-font));
 }
 
 h1 {
@@ -562,9 +567,63 @@ select {
   gap: 8px;
 }
 
-.inline-field input[type="checkbox"] {
-  width: auto;
-  margin: 0;
+.toggle-field {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text);
+}
+
+.toggle-field input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.toggle-switch {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+  flex: 0 0 auto;
+}
+
+.toggle-switch::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ffffff;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.18s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24);
+}
+
+.toggle-text {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.toggle-field input[type="checkbox"]:checked + .toggle-switch {
+  background: linear-gradient(160deg, var(--accent), var(--accent-strong));
+  border-color: var(--accent-strong);
+}
+
+.toggle-field input[type="checkbox"]:checked + .toggle-switch::after {
+  transform: translateX(20px);
+}
+
+.toggle-field input[type="checkbox"]:focus-visible + .toggle-switch {
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .range-field {
@@ -588,3 +647,30 @@ select {
 
 
 
+
+
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.asset-grid label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.asset-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.asset-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

@@ -109,6 +109,14 @@
 
       <section class="panel panel-wide">
         <div class="panel-head">
+          <h2>挂件管理</h2>
+          <button id="refresh-all">刷新全部</button>
+        </div>
+        <div id="widget-list" class="widget-list"></div>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-head">
           <h2>主题管理</h2>
           <span class="hint">仅管理面板可设置，公开页自动同步</span>
         </div>
@@ -124,9 +132,10 @@
           <span class="hint">可在预设主题基础上叠加自定义样式</span>
         </div>
         <form id="custom-theme-form" class="custom-theme-grid">
-          <label class="inline-field">
+          <label class="toggle-field">
             <input id="custom-enabled" type="checkbox" />
-            <span>启用自定义主题</span>
+            <span class="toggle-switch" aria-hidden="true"></span>
+            <span class="toggle-text">启用自定义主题</span>
           </label>
           <label>
             背景色
@@ -151,26 +160,6 @@
               <option value="solid">纯色</option>
             </select>
           </label>
-          <label>
-            标题字体
-            <select id="custom-heading-font">
-              <option value="default">Default</option>
-              <option value="display">Display</option>
-              <option value="round">Round</option>
-              <option value="serif">Serif</option>
-              <option value="mono">Mono</option>
-            </select>
-          </label>
-          <label>
-            正文字体
-            <select id="custom-body-font">
-              <option value="default">Default</option>
-              <option value="round">Round</option>
-              <option value="serif">Serif</option>
-              <option value="mono">Mono</option>
-              <option value="display">Display</option>
-            </select>
-          </label>
           <label class="range-field">
             字号缩放（85%-130%）
             <input id="custom-font-scale" type="range" min="85" max="130" step="1" value="100" />
@@ -193,6 +182,69 @@
           <button id="custom-theme-reset-btn" type="button">恢复默认自定义</button>
         </div>
         <p id="custom-theme-message" class="hint"></p>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-head">
+          <h2>本地背景与字体</h2>
+          <span class="hint">素材来源于 @localonly，仅本机生效且不纳入仓库</span>
+        </div>
+        <form id="asset-form" class="asset-grid">
+          <label class="toggle-field">
+            <input id="asset-bg-enabled" type="checkbox" />
+            <span class="toggle-switch" aria-hidden="true"></span>
+            <span class="toggle-text">启用背景图</span>
+          </label>
+          <label>
+            背景图文件
+            <select id="asset-bg-file"></select>
+          </label>
+          <label class="range-field">
+            背景遮罩强度（0%-100%）
+            <input id="asset-bg-opacity" type="range" min="0" max="100" step="1" value="58" />
+            <span id="asset-bg-opacity-output" class="range-field-output">58%</span>
+          </label>
+          <label class="toggle-field">
+            <input id="asset-font-enabled" type="checkbox" />
+            <span class="toggle-switch" aria-hidden="true"></span>
+            <span class="toggle-text">启用本地字体</span>
+          </label>
+          <label>
+            主题标题字体
+            <select id="asset-theme-heading-font">
+              <option value="default">Default</option>
+              <option value="display">Display</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+            </select>
+          </label>
+          <label>
+            主题正文字体
+            <select id="asset-theme-body-font">
+              <option value="default">Default</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+              <option value="display">Display</option>
+            </select>
+          </label>
+          <label>
+            英文/拉丁字体（仅显示开源可用项）
+            <select id="asset-font-latin"></select>
+          </label>
+          <label>
+            中文字体（仅显示开源可用项）
+            <select id="asset-font-cjk"></select>
+          </label>
+        </form>
+        <div id="asset-license-summary" class="asset-hint"></div>
+        <div class="asset-actions">
+          <button id="asset-preview-btn" type="button">预览本地素材</button>
+          <button id="asset-save-btn" type="button">保存本地素材设置</button>
+          <button id="asset-reset-btn" type="button">恢复默认设置</button>
+        </div>
+        <p id="asset-message" class="hint"></p>
       </section>
 
       <section class="panel panel-wide">
@@ -241,13 +293,6 @@
         <p id="copy-message" class="hint"></p>
       </section>
 
-      <section class="panel panel-wide">
-        <div class="panel-head">
-          <h2>挂件管理</h2>
-          <button id="refresh-all">刷新全部</button>
-        </div>
-        <div id="widget-list" class="widget-list"></div>
-      </section>
     </main>
 
     <template id="widget-template">

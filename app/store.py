@@ -16,6 +16,7 @@ ADMIN_TOKEN_CHANGE_REQUIRED_KEY = "admin_token_change_required"
 UI_THEME_KEY = "ui_theme"
 UI_CUSTOM_THEME_KEY = "ui_custom_theme"
 UI_COPY_KEY = "ui_copy"
+UI_CUSTOM_ASSETS_KEY = "ui_custom_assets"
 
 PBKDF2_ALGORITHM = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 390000
@@ -42,6 +43,16 @@ DEFAULT_UI_COPY: dict[str, str] = {
     "public_note_label": "备注",
     "public_updated_label": "更新时间",
     "public_empty_widgets": "暂时没有挂件数据。",
+}
+
+
+DEFAULT_UI_CUSTOM_ASSETS: dict[str, Any] = {
+    "background_enabled": False,
+    "background_file": "",
+    "background_opacity": 58,
+    "font_enabled": False,
+    "font_latin_file": "",
+    "font_cjk_file": "",
 }
 
 
@@ -267,6 +278,15 @@ class StatusStore:
             self._conn.execute(
                 "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
                 (UI_COPY_KEY, json.dumps(DEFAULT_UI_COPY, ensure_ascii=False), now),
+            )
+
+        assets_row = self._conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (UI_CUSTOM_ASSETS_KEY,)
+        ).fetchone()
+        if assets_row is None:
+            self._conn.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (UI_CUSTOM_ASSETS_KEY, json.dumps(DEFAULT_UI_CUSTOM_ASSETS, ensure_ascii=False), now),
             )
 
         self._conn.commit()
@@ -572,6 +592,14 @@ class StatusStore:
         merged.update({key: str(value) for key, value in copy.items()})
         return self._set_json_setting(UI_COPY_KEY, merged)
 
+    def get_ui_custom_assets(self) -> dict[str, Any]:
+        return self._get_json_setting(UI_CUSTOM_ASSETS_KEY, DEFAULT_UI_CUSTOM_ASSETS)
+
+    def set_ui_custom_assets(self, assets: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(DEFAULT_UI_CUSTOM_ASSETS)
+        merged.update(assets)
+        return self._set_json_setting(UI_CUSTOM_ASSETS_KEY, merged)
+
     def _widget_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         payload_raw = row["last_payload_json"]
         classified_code, safe_error = _classify_widget_error(row["last_error"])
@@ -602,6 +630,7 @@ class StatusStore:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
 
 
 

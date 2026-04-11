@@ -17,3 +17,7 @@ statuspage-ask.md
 /logs/*.log
 /logs/*.log.*
 
+
+# Local-only assets (never track/upload)
+/@localonly/
+

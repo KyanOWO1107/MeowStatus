@@ -14,6 +14,15 @@
     shadow_strength: 100,
   };
 
+  const DEFAULT_CUSTOM_ASSETS = {
+    background_enabled: false,
+    background_file: "",
+    background_opacity: 58,
+    font_enabled: false,
+    font_latin_file: "",
+    font_cjk_file: "",
+  };
+
   const FONT_STACKS = {
     default: '"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
     mono: '"Cascadia Mono", "JetBrains Mono", "Consolas", "Noto Sans Mono CJK SC", monospace',
@@ -57,6 +66,7 @@
   const THEMES_BY_ID = new Map(THEMES.map((theme) => [theme.id, theme]));
   let currentThemeId = DEFAULT_THEME_ID;
   let currentCustomTheme = { ...DEFAULT_CUSTOM_THEME };
+  let currentCustomAssets = { ...DEFAULT_CUSTOM_ASSETS };
 
   function clampInt(value, min, max, fallback) {
     const num = Number(value);
@@ -81,6 +91,31 @@
       return "#" + hex.toLowerCase();
     }
     return "#000000";
+  }
+
+  function normalizeAssetPath(input) {
+    const raw = String(input || "").trim().replace(/\\/g, "/");
+    if (!raw) return "";
+    const parts = raw.split("/").filter((part) => part && part !== "." && part !== "..");
+    return parts.join("/");
+  }
+
+  function localAssetUrl(kind, relPath) {
+    const cleanPath = normalizeAssetPath(relPath);
+    if (!cleanPath) return "";
+    const encoded = cleanPath
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+    return `/local-assets/${kind}/${encoded}`;
+  }
+
+  function fontFormatForPath(fontPath) {
+    const lower = String(fontPath || "").toLowerCase();
+    if (lower.endsWith(".woff2")) return "woff2";
+    if (lower.endsWith(".woff")) return "woff";
+    if (lower.endsWith(".otf")) return "opentype";
+    return "truetype";
   }
 
   function hexToRgb(hex) {
@@ -177,14 +212,11 @@
 
   function scaleShadowAlpha(shadow, factor) {
     const normalizedFactor = Math.max(0.2, Math.min(2, Number(factor) || 1));
-    return String(shadow).replace(
-      /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/,
-      (_, r, g, b, a) => {
-        const base = Number(a);
-        const next = Math.max(0.03, Math.min(0.95, base * normalizedFactor));
-        return `rgba(${r}, ${g}, ${b}, ${next.toFixed(3)})`;
-      },
-    );
+    return String(shadow).replace(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/, (_, r, g, b, a) => {
+      const base = Number(a);
+      const next = Math.max(0.03, Math.min(0.95, base * normalizedFactor));
+      return `rgba(${r}, ${g}, ${b}, ${next.toFixed(3)})`;
+    });
   }
 
   function normalizeCustomTheme(input) {
@@ -208,6 +240,18 @@
       font_scale: clampInt(raw.font_scale, 85, 130, DEFAULT_CUSTOM_THEME.font_scale),
       radius_scale: clampInt(raw.radius_scale, 75, 150, DEFAULT_CUSTOM_THEME.radius_scale),
       shadow_strength: clampInt(raw.shadow_strength, 50, 180, DEFAULT_CUSTOM_THEME.shadow_strength),
+    };
+  }
+
+  function normalizeCustomAssets(input) {
+    const raw = typeof input === "object" && input ? input : {};
+    return {
+      background_enabled: Boolean(raw.background_enabled),
+      background_file: normalizeAssetPath(raw.background_file),
+      background_opacity: clampInt(raw.background_opacity, 0, 100, DEFAULT_CUSTOM_ASSETS.background_opacity),
+      font_enabled: Boolean(raw.font_enabled),
+      font_latin_file: normalizeAssetPath(raw.font_latin_file),
+      font_cjk_file: normalizeAssetPath(raw.font_cjk_file),
     };
   }
 
@@ -244,7 +288,61 @@
     });
   }
 
-  function applyPalette(themeId, customTheme = currentCustomTheme) {
+  function applyCustomAssets(customAssets = currentCustomAssets) {
+    const normalizedAssets = normalizeCustomAssets(customAssets);
+    const root = document.documentElement;
+
+    if (normalizedAssets.background_enabled && normalizedAssets.background_file) {
+      const url = localAssetUrl("bg", normalizedAssets.background_file);
+      root.style.setProperty("--bg-photo-url", `url(\"${url}\")`);
+      root.style.setProperty("--bg-photo-opacity", (normalizedAssets.background_opacity / 100).toFixed(2));
+    } else {
+      root.style.setProperty("--bg-photo-url", "none");
+      root.style.setProperty("--bg-photo-opacity", "0");
+    }
+
+    let styleEl = document.getElementById("meow-local-font-style");
+    if (!styleEl) {
+      styleEl = document.createElement("style");
+      styleEl.id = "meow-local-font-style";
+      document.head.appendChild(styleEl);
+    }
+
+    const rules = [];
+    const latinUrl = normalizedAssets.font_enabled ? localAssetUrl("fonts", normalizedAssets.font_latin_file) : "";
+    const cjkUrl = normalizedAssets.font_enabled ? localAssetUrl("fonts", normalizedAssets.font_cjk_file) : "";
+
+    if (latinUrl) {
+      rules.push(
+        `@font-face { font-family: "MeowLocalLatin"; src: url("${latinUrl}") format("${fontFormatForPath(normalizedAssets.font_latin_file)}"); font-display: swap; }`,
+      );
+    }
+    if (cjkUrl) {
+      rules.push(
+        `@font-face { font-family: "MeowLocalCJK"; src: url("${cjkUrl}") format("${fontFormatForPath(normalizedAssets.font_cjk_file)}"); font-display: swap; }`,
+      );
+    }
+
+    styleEl.textContent = rules.join("\n");
+
+    if (normalizedAssets.font_enabled && (latinUrl || cjkUrl)) {
+      const families = [];
+      if (latinUrl) families.push('"MeowLocalLatin"');
+      if (cjkUrl) families.push('"MeowLocalCJK"');
+      families.push("var(--body-font)");
+      const bodyStack = families.join(", ");
+      root.style.setProperty("--font-override-body", bodyStack);
+      root.style.setProperty("--font-override-heading", bodyStack.replace("var(--body-font)", "var(--heading-font)"));
+    } else {
+      root.style.removeProperty("--font-override-body");
+      root.style.removeProperty("--font-override-heading");
+    }
+
+    currentCustomAssets = normalizedAssets;
+    return normalizedAssets;
+  }
+
+  function applyPalette(themeId, customTheme = currentCustomTheme, customAssets = currentCustomAssets) {
     const normalizedCustom = normalizeCustomTheme(customTheme);
     const theme = resolveTheme(themeId, normalizedCustom);
     const palette = makePalette(theme);
@@ -280,6 +378,7 @@
     currentThemeId = theme.id;
     currentCustomTheme = normalizedCustom;
     syncThemeOptions();
+    applyCustomAssets(customAssets);
     return theme.id;
   }
 
@@ -292,8 +391,9 @@
 
     const themeId = THEMES_BY_ID.has(body.theme) ? body.theme : DEFAULT_THEME_ID;
     const customTheme = normalizeCustomTheme(body.custom_theme);
-    applyPalette(themeId, customTheme);
-    return { theme: themeId, custom_theme: customTheme };
+    const customAssets = normalizeCustomAssets(body.custom_assets);
+    applyPalette(themeId, customTheme, customAssets);
+    return { theme: themeId, custom_theme: customTheme, custom_assets: customAssets };
   }
 
   async function saveTheme(themeId, adminToken) {
@@ -325,8 +425,9 @@
 
     const savedId = THEMES_BY_ID.has(body.theme) ? body.theme : normalized;
     const customTheme = normalizeCustomTheme(body.custom_theme || currentCustomTheme);
-    applyPalette(savedId, customTheme);
-    return { theme: savedId, custom_theme: customTheme };
+    const customAssets = normalizeCustomAssets(body.custom_assets || currentCustomAssets);
+    applyPalette(savedId, customTheme, customAssets);
+    return { theme: savedId, custom_theme: customTheme, custom_assets: customAssets };
   }
 
   async function saveCustomTheme(customTheme, adminToken, themeId = currentThemeId) {
@@ -359,15 +460,51 @@
 
     const nextTheme = THEMES_BY_ID.has(body.theme) ? body.theme : normalizedTheme;
     const nextCustomTheme = normalizeCustomTheme(body.custom_theme);
-    applyPalette(nextTheme, nextCustomTheme);
-    return { theme: nextTheme, custom_theme: nextCustomTheme };
+    const nextCustomAssets = normalizeCustomAssets(body.custom_assets || currentCustomAssets);
+    applyPalette(nextTheme, nextCustomTheme, nextCustomAssets);
+    return { theme: nextTheme, custom_theme: nextCustomTheme, custom_assets: nextCustomAssets };
+  }
+
+  async function saveCustomAssets(customAssets, adminToken) {
+    const token = String(adminToken || "").trim();
+    if (!token) {
+      throw new Error("缺少管理员 Token");
+    }
+
+    const response = await fetch("/api/assets", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Token": token,
+      },
+      body: JSON.stringify({ custom_assets: normalizeCustomAssets(customAssets) }),
+    });
+
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(body.error || `Assets update failed (${response.status})`);
+      error.status = response.status;
+      throw error;
+    }
+
+    const savedAssets = normalizeCustomAssets(body.custom_assets);
+    applyPalette(currentThemeId, currentCustomTheme, savedAssets);
+    return { custom_assets: savedAssets };
   }
 
   function previewCustomTheme(customTheme, themeId = currentThemeId) {
     const normalizedTheme = THEMES_BY_ID.has(themeId) ? themeId : DEFAULT_THEME_ID;
     const normalizedCustom = normalizeCustomTheme(customTheme);
-    applyPalette(normalizedTheme, normalizedCustom);
-    return { theme: normalizedTheme, custom_theme: normalizedCustom };
+    applyPalette(normalizedTheme, normalizedCustom, currentCustomAssets);
+    return { theme: normalizedTheme, custom_theme: normalizedCustom, custom_assets: currentCustomAssets };
+  }
+
+  function previewCustomAssets(customAssets, themeId = currentThemeId, customTheme = currentCustomTheme) {
+    const normalizedTheme = THEMES_BY_ID.has(themeId) ? themeId : DEFAULT_THEME_ID;
+    const normalizedThemeConfig = normalizeCustomTheme(customTheme);
+    const normalizedAssets = normalizeCustomAssets(customAssets);
+    applyPalette(normalizedTheme, normalizedThemeConfig, normalizedAssets);
+    return { theme: normalizedTheme, custom_theme: normalizedThemeConfig, custom_assets: normalizedAssets };
   }
 
   function getThemes() {
@@ -378,8 +515,12 @@
     return { ...currentCustomTheme };
   }
 
+  function getCurrentCustomAssets() {
+    return { ...currentCustomAssets };
+  }
+
   function init() {
-    applyPalette(DEFAULT_THEME_ID, DEFAULT_CUSTOM_THEME);
+    applyPalette(DEFAULT_THEME_ID, DEFAULT_CUSTOM_THEME, DEFAULT_CUSTOM_ASSETS);
     loadRemoteTheme().catch(() => {
       // Keep default theme when remote loading fails.
     });
@@ -390,11 +531,15 @@
     getThemes,
     getCurrentTheme: () => currentThemeId,
     getCurrentCustomTheme,
+    getCurrentCustomAssets,
     normalizeCustomTheme,
+    normalizeCustomAssets,
     previewCustomTheme,
+    previewCustomAssets,
     loadRemoteTheme,
     saveTheme,
     saveCustomTheme,
+    saveCustomAssets,
   };
 
   if (document.readyState === "loading") {
@@ -403,3 +548,4 @@
     init();
   }
 })();
+

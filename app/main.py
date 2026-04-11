@@ -5,6 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import mimetypes
 import os
+from pathlib import Path
 import re
 import threading
 import time
@@ -12,12 +13,12 @@ import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .config import AppConfig, load_config
 from .plugins import MinecraftBedrockProvider, MinecraftJavaProvider, ProviderRegistry
 from .poller import WidgetPoller
-from .store import DEFAULT_UI_COPY, DEFAULT_UI_CUSTOM_THEME, StatusStore, utc_now_iso
+from .store import DEFAULT_UI_COPY, DEFAULT_UI_CUSTOM_ASSETS, DEFAULT_UI_CUSTOM_THEME, StatusStore, utc_now_iso
 
 logger = logging.getLogger("meowstatus")
 
@@ -83,6 +84,34 @@ SUPPORTED_THEME_MODES = {"auto", "light", "dark"}
 SUPPORTED_BACKGROUND_STYLES = {"gradient", "solid"}
 SUPPORTED_FONT_CHOICES = {"default", "mono", "serif", "round", "display"}
 HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+LOCAL_BG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+LOCAL_FONT_EXTENSIONS = {".ttf", ".otf", ".ttc", ".woff", ".woff2"}
+FONT_LICENSE_ALLOWED_MARKERS = (
+    "sil open font license",
+    "open font license",
+    "scripts.sil.org/ofl",
+    "apache license",
+    "ubuntu font licence",
+    "gnu general public license",
+)
+FONT_LICENSE_BLOCKED_MARKERS = (
+    "personal use",
+    "for personal use",
+    "noncommercial",
+    "non-commercial",
+    "for further details please go to: http://www.foundertype.com",
+    "all rights reserved",
+)
+FONT_NAME_BLOCKLIST_MARKERS = (
+    "方正",
+    "founder",
+    "造字工房",
+    "仓耳",
+    "锐字",
+    "futura",
+    "pingfang",
+    "mojang",
+)
 
 class AuthRateLimiter:
     def __init__(self, *, max_attempts: int, window_sec: int, lockout_sec: int) -> None:
@@ -228,6 +257,11 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             self._serve_static(rel_path)
             return
 
+        if path.startswith("/local-assets/"):
+            rel_path = unquote(path[len("/local-assets/") :])
+            self._serve_local_asset(rel_path)
+            return
+
         if path == "/api/health":
             self._send_json(HTTPStatus.OK, {"ok": True, "time": utc_now_iso()})
             return
@@ -250,12 +284,23 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
                 {
                     "theme": self.context.store.get_ui_theme(),
                     "custom_theme": self.context.store.get_ui_custom_theme(),
+                    "custom_assets": self.context.store.get_ui_custom_assets(),
                 },
             )
             return
 
         if path == "/api/copy":
             self._send_json(HTTPStatus.OK, {"copy": self.context.store.get_ui_copy()})
+            return
+
+        if path == "/api/assets":
+            self._send_json(HTTPStatus.OK, {"custom_assets": self.context.store.get_ui_custom_assets()})
+            return
+
+        if path == "/api/admin/local-assets":
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+            self._send_json(HTTPStatus.OK, self._scan_local_assets())
             return
 
         if path == "/api/profile/status":
@@ -287,6 +332,7 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
                 "theme": self.context.store.get_ui_theme(),
                 "custom_theme": self.context.store.get_ui_custom_theme(),
                 "copy": self.context.store.get_ui_copy(),
+                "custom_assets": self.context.store.get_ui_custom_assets(),
                 "generated_at": utc_now_iso(),
             }
             self._send_json(HTTPStatus.OK, payload)
@@ -414,8 +460,20 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
                     return
                 custom_theme = self.context.store.set_ui_custom_theme(custom_theme)
 
+            custom_assets = self.context.store.get_ui_custom_assets()
+            if "custom_assets" in body:
+                try:
+                    custom_assets = self._normalize_custom_assets(body.get("custom_assets"))
+                except ValueError as exc:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                    return
+                custom_assets = self.context.store.set_ui_custom_assets(custom_assets)
+
             saved = self.context.store.set_ui_theme(theme)
-            self._send_json(HTTPStatus.OK, {"theme": saved, "custom_theme": custom_theme})
+            self._send_json(
+                HTTPStatus.OK,
+                {"theme": saved, "custom_theme": custom_theme, "custom_assets": custom_assets},
+            )
             return
 
         if path == "/api/copy":
@@ -435,6 +493,25 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
 
             saved_copy = self.context.store.set_ui_copy(normalized_copy)
             self._send_json(HTTPStatus.OK, {"copy": saved_copy})
+            return
+
+        if path == "/api/assets":
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+
+            body = self._parse_json_body()
+            if body is None:
+                return
+
+            raw_assets = body.get("custom_assets", body)
+            try:
+                normalized_assets = self._normalize_custom_assets(raw_assets)
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+
+            saved_assets = self.context.store.set_ui_custom_assets(normalized_assets)
+            self._send_json(HTTPStatus.OK, {"custom_assets": saved_assets})
             return
 
         if path == "/api/profile/status":
@@ -601,6 +678,49 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self._send_cors_headers()
         self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_local_asset(self, relative_path: str) -> None:
+        decoded = str(relative_path or "").strip().replace("\\", "/")
+        parts = [part for part in decoded.split("/") if part and part not in {".", ".."}]
+        if len(parts) < 2:
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "File not found"})
+            return
+
+        category = parts[0]
+        if category not in {"bg", "fonts"}:
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "File not found"})
+            return
+
+        if category == "bg":
+            base_dir = (self.context.config.local_assets_dir / "bg").resolve()
+        else:
+            base_dir = (self.context.config.local_assets_dir / "fonts").resolve()
+
+        if not base_dir.exists() or not base_dir.is_dir():
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "File not found"})
+            return
+
+        rel_path = "/".join(parts[1:])
+        requested = (base_dir / rel_path).resolve()
+        if base_dir not in requested.parents and requested != base_dir:
+            self._send_json(HTTPStatus.FORBIDDEN, {"error": "Forbidden"})
+            return
+
+        if not requested.exists() or not requested.is_file():
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "File not found"})
+            return
+
+        mime, _ = mimetypes.guess_type(str(requested))
+        content_type = mime or "application/octet-stream"
+        data = requested.read_bytes()
+
+        self.send_response(HTTPStatus.OK)
+        self._send_cors_headers()
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "public, max-age=300")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -829,6 +949,141 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
 
         return normalized
 
+    def _normalize_local_asset_path(self, value: object) -> str:
+        raw = str(value if value is not None else "").strip().replace("\\", "/")
+        if not raw:
+            return ""
+        parts = [part for part in raw.split("/") if part and part not in {".", ".."}]
+        return "/".join(parts)
+
+    def _read_font_license_hints(self, font_path: Path) -> str:
+        hints: list[str] = [font_path.name.lower(), str(font_path.parent.name).lower()]
+
+        try:
+            from fontTools.ttLib import TTFont  # type: ignore
+
+            font = TTFont(str(font_path), lazy=True)
+            if "name" in font:
+                for rec in font["name"].names:
+                    if rec.nameID not in {0, 13, 14}:
+                        continue
+                    try:
+                        text = rec.toUnicode().strip()
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if text:
+                        hints.append(text.lower())
+        except Exception:  # noqa: BLE001
+            pass
+
+        return " ".join(hints)
+
+    def _classify_local_font_license(self, font_path: Path) -> tuple[str, str]:
+        hint_text = self._read_font_license_hints(font_path)
+
+        if any(marker in hint_text for marker in FONT_NAME_BLOCKLIST_MARKERS):
+            return "blocked", "检测到品牌/商业字体关键词，默认禁用。"
+
+        if any(marker in hint_text for marker in FONT_LICENSE_BLOCKED_MARKERS):
+            return "blocked", "检测到个人/非商用或受限授权关键词，默认禁用。"
+
+        if any(marker in hint_text for marker in FONT_LICENSE_ALLOWED_MARKERS):
+            return "allowed", "检测到常见开源字体授权标记。"
+
+        return "review", "未检测到明确开源授权信息，建议人工确认。"
+
+    def _scan_local_assets(self) -> dict[str, object]:
+        local_root = self.context.config.local_assets_dir.resolve()
+        bg_root = (local_root / "bg").resolve()
+        fonts_root = (local_root / "fonts").resolve()
+
+        backgrounds: list[dict[str, str]] = []
+        if bg_root.exists() and bg_root.is_dir():
+            for path in sorted(bg_root.rglob("*")):
+                if not path.is_file() or path.suffix.lower() not in LOCAL_BG_EXTENSIONS:
+                    continue
+                rel = path.relative_to(bg_root).as_posix()
+                backgrounds.append({"path": rel, "name": path.name})
+
+        fonts: list[dict[str, str]] = []
+        allowed_font_paths: list[str] = []
+        if fonts_root.exists() and fonts_root.is_dir():
+            for path in sorted(fonts_root.rglob("*")):
+                if not path.is_file() or path.suffix.lower() not in LOCAL_FONT_EXTENSIONS:
+                    continue
+                rel = path.relative_to(fonts_root).as_posix()
+                status, note = self._classify_local_font_license(path)
+                item = {
+                    "path": rel,
+                    "name": path.name,
+                    "license_status": status,
+                    "license_note": note,
+                }
+                fonts.append(item)
+                if status == "allowed":
+                    allowed_font_paths.append(rel)
+
+        return {
+            "root_exists": local_root.exists(),
+            "backgrounds": backgrounds,
+            "fonts": fonts,
+            "allowed_font_paths": allowed_font_paths,
+        }
+
+    def _normalize_custom_assets(self, payload: object) -> dict[str, object]:
+        if not isinstance(payload, dict):
+            raise ValueError("'custom_assets' must be an object")
+
+        catalog = self._scan_local_assets()
+        backgrounds = {
+            str(item.get("path", ""))
+            for item in catalog.get("backgrounds", [])
+            if isinstance(item, dict) and item.get("path")
+        }
+        allowed_fonts = {str(path) for path in catalog.get("allowed_font_paths", [])}
+
+        normalized = dict(DEFAULT_UI_CUSTOM_ASSETS)
+        normalized["background_enabled"] = self._coerce_bool(
+            payload.get("background_enabled"),
+            bool(DEFAULT_UI_CUSTOM_ASSETS["background_enabled"]),
+        )
+        normalized["background_opacity"] = self._normalize_int_range(
+            payload.get("background_opacity"),
+            default=int(DEFAULT_UI_CUSTOM_ASSETS["background_opacity"]),
+            min_value=0,
+            max_value=100,
+        )
+
+        bg_file = self._normalize_local_asset_path(payload.get("background_file"))
+        if bg_file and bg_file not in backgrounds:
+            raise ValueError("Selected background file is not available under @localonly/bg")
+        normalized["background_file"] = bg_file
+
+        normalized["font_enabled"] = self._coerce_bool(
+            payload.get("font_enabled"),
+            bool(DEFAULT_UI_CUSTOM_ASSETS["font_enabled"]),
+        )
+
+        latin_file = self._normalize_local_asset_path(payload.get("font_latin_file"))
+        cjk_file = self._normalize_local_asset_path(payload.get("font_cjk_file"))
+
+        if latin_file and latin_file not in allowed_fonts:
+            raise ValueError("Selected Latin font is not in allowed open-license list")
+        if cjk_file and cjk_file not in allowed_fonts:
+            raise ValueError("Selected CJK font is not in allowed open-license list")
+
+        normalized["font_latin_file"] = latin_file
+        normalized["font_cjk_file"] = cjk_file
+
+        if not normalized["background_enabled"]:
+            normalized["background_file"] = ""
+
+        if not normalized["font_enabled"]:
+            normalized["font_latin_file"] = ""
+            normalized["font_cjk_file"] = ""
+
+        return normalized
+
     def _client_identity_key(self) -> str:
         # Reverse proxies should overwrite this by setting proper forwarding middleware.
         return self.client_address[0] or "unknown"
@@ -902,6 +1157,8 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
+
+
 
 
 
