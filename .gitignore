@@ -10,6 +10,7 @@ __pycache__/
 
 # Playwright artifacts
 .playwright-cli/
+
 more-theme-1.md
 statuspage-ask.md
 
@@ -21,3 +22,4 @@ statuspage-ask.md
 # Local-only assets (never track/upload)
 /@localonly/
 
+start.bat

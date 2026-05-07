@@ -29,9 +29,21 @@ DEFAULT_UI_CUSTOM_THEME: dict[str, Any] = {
     "background_style": "gradient",
     "heading_font": "default",
     "body_font": "default",
+    "heading_font_latin": "default",
+    "heading_font_cjk": "default",
+    "body_font_latin": "default",
+    "body_font_cjk": "default",
+    "widget_title_font_latin": "inherit",
+    "widget_title_font_cjk": "inherit",
+    "widget_body_font_latin": "inherit",
+    "widget_body_font_cjk": "inherit",
     "font_scale": 100,
     "radius_scale": 100,
     "shadow_strength": 100,
+    "panel_opacity": 100,
+    "card_opacity": 46,
+    "input_opacity": 100,
+    "overlay_opacity": 58,
 }
 
 DEFAULT_UI_COPY: dict[str, str] = {
@@ -154,6 +166,7 @@ class StatusStore:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         self._admin_bootstrap_token = admin_bootstrap_token
+        self.admin_bootstrap_token_was_stored = False
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -239,6 +252,7 @@ class StatusStore:
             "SELECT value FROM app_settings WHERE key = ?", (ADMIN_TOKEN_HASH_KEY,)
         ).fetchone()
         if token_row is None:
+            self.admin_bootstrap_token_was_stored = True
             self._conn.execute(
                 "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
                 (ADMIN_TOKEN_HASH_KEY, _make_token_hash(self._admin_bootstrap_token), now),
@@ -342,6 +356,9 @@ class StatusStore:
 
         return [self._widget_row_to_dict(row) for row in rows]
 
+    def list_public_widgets(self, *, kind: str | None = None) -> list[dict[str, Any]]:
+        return [self._widget_to_public_dict(widget) for widget in self.list_widgets(enabled_only=True, kind=kind)]
+
     def get_widget(self, widget_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._conn.execute(
@@ -354,6 +371,12 @@ class StatusStore:
             ).fetchone()
 
         return self._widget_row_to_dict(row) if row else None
+
+    def get_public_widget(self, widget_id: str) -> dict[str, Any] | None:
+        widget = self.get_widget(widget_id)
+        if widget is None or not widget.get("enabled"):
+            return None
+        return self._widget_to_public_dict(widget)
 
     def _next_widget_order_locked(self) -> int:
         row = self._conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM widgets").fetchone()
@@ -630,6 +653,40 @@ class StatusStore:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    def _widget_to_public_dict(self, widget: dict[str, Any]) -> dict[str, Any]:
+        payload = widget.get("last_payload")
+        safe_payload = self._payload_to_public_dict(payload) if isinstance(payload, dict) else None
+        return {
+            "id": widget["id"],
+            "kind": widget["kind"],
+            "name": widget["name"],
+            "sort_order": widget["sort_order"],
+            "last_payload": safe_payload,
+            "last_updated_at": widget["last_updated_at"],
+            "last_error": widget["last_error"],
+            "last_error_code": widget["last_error_code"],
+        }
+
+    def _payload_to_public_dict(self, payload: dict[str, Any]) -> dict[str, Any]:
+        allowed_keys = {
+            "provider",
+            "source",
+            "target",
+            "online",
+            "motd",
+            "version",
+            "server_software",
+            "players_online",
+            "players_max",
+            "latency_ms",
+            "ping_protocol_used",
+            "query_protocol_used",
+            "favicon",
+            "checked_at",
+            "fallback_from",
+        }
+        return {key: payload.get(key) for key in allowed_keys if key in payload}
 
 
 

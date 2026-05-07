@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,6 +14,7 @@ class AppConfig:
     static_dir: Path
     widget_poll_interval_sec: int
     admin_bootstrap_token: str
+    admin_bootstrap_token_generated: bool
     admin_path: str
     auth_max_attempts: int
     auth_window_sec: int
@@ -22,6 +24,8 @@ class AppConfig:
     log_max_bytes: int
     log_backup_count: int
     local_assets_dir: Path
+    trust_proxy_headers: bool
+    cors_origins: tuple[str, ...]
 
 
 RESERVED_ADMIN_PATH_PREFIXES = (
@@ -73,6 +77,18 @@ def _load_int_env(name: str, default: int, *, min_value: int) -> int:
     return value
 
 
+def _load_bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_csv_env(name: str) -> tuple[str, ...]:
+    raw = os.getenv(name, "")
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 def load_config() -> AppConfig:
     root_dir = Path(__file__).resolve().parent.parent
     default_db = root_dir / "data" / "status_hub.db"
@@ -83,7 +99,13 @@ def load_config() -> AppConfig:
     static_dir = root_dir / "app" / "static"
     widget_poll_interval_sec = _load_int_env("WIDGET_POLL_INTERVAL", 60, min_value=5)
 
-    admin_bootstrap_token = os.getenv("MEOWSTATUS_ADMIN_TOKEN", "change-me")
+    raw_admin_token = os.getenv("MEOWSTATUS_ADMIN_TOKEN")
+    if raw_admin_token is None or raw_admin_token.strip() in {"", "change-me"}:
+        admin_bootstrap_token = secrets.token_urlsafe(32)
+        admin_bootstrap_token_generated = True
+    else:
+        admin_bootstrap_token = raw_admin_token.strip()
+        admin_bootstrap_token_generated = False
     admin_path = _normalize_admin_path(os.getenv("MEOWSTATUS_ADMIN_PATH", "/admin"))
 
     auth_max_attempts = _load_int_env("MEOWSTATUS_AUTH_MAX_ATTEMPTS", 5, min_value=1)
@@ -95,6 +117,8 @@ def load_config() -> AppConfig:
     log_max_bytes = _load_int_env("MEOWSTATUS_LOG_MAX_BYTES", 5 * 1024 * 1024, min_value=1024)
     log_backup_count = _load_int_env("MEOWSTATUS_LOG_BACKUP_COUNT", 5, min_value=1)
     local_assets_dir = Path(os.getenv("MEOWSTATUS_LOCAL_ASSETS_DIR", str(root_dir / "@localonly"))).resolve()
+    trust_proxy_headers = _load_bool_env("MEOWSTATUS_TRUST_PROXY_HEADERS", default=False)
+    cors_origins = _load_csv_env("MEOWSTATUS_CORS_ORIGINS")
 
     return AppConfig(
         host=host,
@@ -103,6 +127,7 @@ def load_config() -> AppConfig:
         static_dir=static_dir,
         widget_poll_interval_sec=widget_poll_interval_sec,
         admin_bootstrap_token=admin_bootstrap_token,
+        admin_bootstrap_token_generated=admin_bootstrap_token_generated,
         admin_path=admin_path,
         auth_max_attempts=auth_max_attempts,
         auth_window_sec=auth_window_sec,
@@ -112,6 +137,8 @@ def load_config() -> AppConfig:
         log_max_bytes=log_max_bytes,
         log_backup_count=log_backup_count,
         local_assets_dir=local_assets_dir,
+        trust_proxy_headers=trust_proxy_headers,
+        cors_origins=cors_origins,
     )
 
 

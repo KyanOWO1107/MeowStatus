@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/static/img/logo/logo_256x.png" />
     <title>MeowStatus Admin</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -82,8 +83,9 @@
       </section>
 
       <section class="panel">
-        <h2>添加 Minecraft 挂件</h2>
+        <h2 id="mc-form-title">添加 Minecraft 挂件</h2>
         <form id="mc-form" class="col-form">
+          <input id="mc-edit-id" type="hidden" />
           <label>
             名称
             <input id="mc-name" type="text" placeholder="我的生存服" />
@@ -103,7 +105,27 @@
             端口
             <input id="mc-port" type="number" min="1" max="65535" placeholder="留空使用默认端口" />
           </label>
-          <button type="submit">创建挂件</button>
+          <label>
+            查询来源
+            <select id="mc-source">
+              <option value="auto">自动（mcstatus 优先）</option>
+              <option value="mcstatus">仅 mcstatus</option>
+              <option value="mcsrvstat">仅 mcsrvstat.us</option>
+            </select>
+          </label>
+          <label>
+            超时秒数
+            <input id="mc-timeout" type="number" min="1" max="30" value="6" />
+          </label>
+          <label class="toggle-field">
+            <input id="mc-enabled" type="checkbox" checked />
+            <span class="toggle-switch" aria-hidden="true"></span>
+            <span class="toggle-text">启用挂件</span>
+          </label>
+          <div class="button-row">
+            <button id="mc-submit-btn" type="submit">创建挂件</button>
+            <button id="mc-cancel-edit-btn" type="button" class="hidden">取消编辑</button>
+          </div>
         </form>
       </section>
 
@@ -175,6 +197,26 @@
             <input id="custom-shadow-strength" type="range" min="50" max="180" step="1" value="100" />
             <span id="custom-shadow-strength-output" class="range-field-output">100%</span>
           </label>
+          <label class="range-field">
+            面板透明度（35%-100%）
+            <input id="custom-panel-opacity" type="range" min="35" max="100" step="1" value="100" />
+            <span id="custom-panel-opacity-output" class="range-field-output">100%</span>
+          </label>
+          <label class="range-field">
+            卡片透明度（20%-100%）
+            <input id="custom-card-opacity" type="range" min="20" max="100" step="1" value="46" />
+            <span id="custom-card-opacity-output" class="range-field-output">46%</span>
+          </label>
+          <label class="range-field">
+            输入框透明度（35%-100%）
+            <input id="custom-input-opacity" type="range" min="35" max="100" step="1" value="100" />
+            <span id="custom-input-opacity-output" class="range-field-output">100%</span>
+          </label>
+          <label class="range-field">
+            登录遮罩透明度（20%-90%）
+            <input id="custom-overlay-opacity" type="range" min="20" max="90" step="1" value="58" />
+            <span id="custom-overlay-opacity-output" class="range-field-output">58%</span>
+          </label>
         </form>
         <div class="custom-theme-actions">
           <button id="custom-preview-btn" type="button">预览</button>
@@ -210,8 +252,8 @@
             <span class="toggle-text">启用本地字体</span>
           </label>
           <label>
-            主题标题字体
-            <select id="asset-theme-heading-font">
+            标题英文字体风格
+            <select id="asset-theme-heading-font-latin">
               <option value="default">Default</option>
               <option value="display">Display</option>
               <option value="round">Round</option>
@@ -220,8 +262,72 @@
             </select>
           </label>
           <label>
-            主题正文字体
-            <select id="asset-theme-body-font">
+            标题中文字体风格
+            <select id="asset-theme-heading-font-cjk">
+              <option value="default">Default</option>
+              <option value="display">Display</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+            </select>
+          </label>
+          <label>
+            正文英文字体风格
+            <select id="asset-theme-body-font-latin">
+              <option value="default">Default</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+              <option value="display">Display</option>
+            </select>
+          </label>
+          <label>
+            正文中文字体风格
+            <select id="asset-theme-body-font-cjk">
+              <option value="default">Default</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+              <option value="display">Display</option>
+            </select>
+          </label>
+          <label>
+            挂件标题英文字体（组件覆盖）
+            <select id="asset-widget-title-font-latin">
+              <option value="inherit">跟随全局</option>
+              <option value="default">Default</option>
+              <option value="display">Display</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+            </select>
+          </label>
+          <label>
+            挂件标题中文字体（组件覆盖）
+            <select id="asset-widget-title-font-cjk">
+              <option value="inherit">跟随全局</option>
+              <option value="default">Default</option>
+              <option value="display">Display</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+            </select>
+          </label>
+          <label>
+            挂件正文英文字体（组件覆盖）
+            <select id="asset-widget-body-font-latin">
+              <option value="inherit">跟随全局</option>
+              <option value="default">Default</option>
+              <option value="round">Round</option>
+              <option value="serif">Serif</option>
+              <option value="mono">Mono</option>
+              <option value="display">Display</option>
+            </select>
+          </label>
+          <label>
+            挂件正文中文字体（组件覆盖）
+            <select id="asset-widget-body-font-cjk">
+              <option value="inherit">跟随全局</option>
               <option value="default">Default</option>
               <option value="round">Round</option>
               <option value="serif">Serif</option>
@@ -329,4 +435,3 @@
     <script src="/static/admin.js"></script>
   </body>
 </html>
-

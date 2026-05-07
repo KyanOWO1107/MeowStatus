@@ -22,6 +22,9 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger(__name__)
 
 ALLOWED_SOURCES = {"auto", "mcstatus", "mcsrvstat"}
+MIN_TIMEOUT_SEC = 1
+MAX_TIMEOUT_SEC = 30
+MAX_UPSTREAM_RESPONSE_BYTES = 512 * 1024
 
 KNOWN_SOFTWARE_MARKERS = [
     "Paper",
@@ -244,6 +247,8 @@ class _MinecraftProviderBase(WidgetProvider):
             port = int(raw_port)
         except (TypeError, ValueError) as exc:
             raise ProviderError("Minecraft widget port must be an integer") from exc
+        if port < 1 or port > 65535:
+            raise ProviderError("Minecraft widget port must be between 1 and 65535")
 
         raw_timeout = config.get("timeout_sec", 6)
         if raw_timeout in (None, ""):
@@ -253,6 +258,8 @@ class _MinecraftProviderBase(WidgetProvider):
             timeout_sec = int(raw_timeout)
         except (TypeError, ValueError) as exc:
             raise ProviderError("Minecraft widget timeout_sec must be an integer") from exc
+        if timeout_sec < MIN_TIMEOUT_SEC or timeout_sec > MAX_TIMEOUT_SEC:
+            raise ProviderError(f"Minecraft widget timeout_sec must be between {MIN_TIMEOUT_SEC} and {MAX_TIMEOUT_SEC}")
 
         source = str(config.get("source", "auto")).strip().lower()
         if source not in ALLOWED_SOURCES:
@@ -319,7 +326,10 @@ class _MinecraftProviderBase(WidgetProvider):
             with urllib.request.urlopen(request, timeout=timeout_sec) as response:
                 if response.status != 200:
                     raise ProviderError(f"Minecraft status API returned HTTP {response.status}")
-                raw = response.read().decode("utf-8")
+                raw_bytes = response.read(MAX_UPSTREAM_RESPONSE_BYTES + 1)
+                if len(raw_bytes) > MAX_UPSTREAM_RESPONSE_BYTES:
+                    raise ProviderError("Minecraft status API response is too large")
+                raw = raw_bytes.decode("utf-8")
                 data = json.loads(raw)
         except urllib.error.URLError as exc:
             raise ProviderError("Could not query Minecraft status API") from exc

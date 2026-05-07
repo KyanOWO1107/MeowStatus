@@ -37,6 +37,11 @@ const assetPreviewBtn = document.getElementById("asset-preview-btn");
 const assetSaveBtn = document.getElementById("asset-save-btn");
 const assetResetBtn = document.getElementById("asset-reset-btn");
 
+const mcFormTitleEl = document.getElementById("mc-form-title");
+const mcEditIdInput = document.getElementById("mc-edit-id");
+const mcSubmitBtn = document.getElementById("mc-submit-btn");
+const mcCancelEditBtn = document.getElementById("mc-cancel-edit-btn");
+
 const DEFAULT_COPY = {
   public_eyebrow: "MEOW STATUS HUB",
   public_title: "MeowStatus Live Board",
@@ -60,9 +65,18 @@ const DEFAULT_CUSTOM_ASSETS = {
 const DEFAULT_THEME_FONT_SETTINGS = {
   heading_font: "default",
   body_font: "default",
+  heading_font_latin: "default",
+  heading_font_cjk: "default",
+  body_font_latin: "default",
+  body_font_cjk: "default",
+  widget_title_font_latin: "inherit",
+  widget_title_font_cjk: "inherit",
+  widget_body_font_latin: "inherit",
+  widget_body_font_cjk: "inherit",
 };
 
 const SUPPORTED_THEME_FONTS = new Set(["default", "display", "round", "serif", "mono"]);
+const SUPPORTED_COMPONENT_THEME_FONTS = new Set(["inherit", ...SUPPORTED_THEME_FONTS]);
 
 const COPY_INPUT_IDS = {
   public_eyebrow: "copy-public-eyebrow",
@@ -88,6 +102,7 @@ let customThemeInitialized = false;
 let copyInitialized = false;
 let assetInitialized = false;
 let localAssetCatalog = { backgrounds: [], fonts: [], allowed_font_paths: [] };
+let adminAssetPreviewUrls = [];
 
 function formatTime(value) {
   if (!value) return "-";
@@ -130,6 +145,73 @@ function formatWidgetError(widget) {
   if (!message) return "";
   const code = String(widget?.last_error_code || "").trim();
   return code ? `[${code}] ${message}` : message;
+}
+
+function normalizeMinecraftPort(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const port = Number(text);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("端口必须是 1-65535 的整数");
+  }
+  return port;
+}
+
+function normalizeMinecraftTimeout(value) {
+  const timeout = Number(String(value || "6").trim());
+  if (!Number.isInteger(timeout) || timeout < 1 || timeout > 30) {
+    throw new Error("超时秒数必须是 1-30 的整数");
+  }
+  return timeout;
+}
+
+function readMinecraftForm() {
+  const name = document.getElementById("mc-name").value.trim();
+  const edition = document.getElementById("mc-edition").value;
+  const host = document.getElementById("mc-host").value.trim();
+  const source = document.getElementById("mc-source").value;
+  const timeoutSec = normalizeMinecraftTimeout(document.getElementById("mc-timeout").value);
+  const enabled = document.getElementById("mc-enabled").checked;
+  const port = normalizeMinecraftPort(document.getElementById("mc-port").value);
+
+  if (!host) {
+    throw new Error("请填写服务器主机");
+  }
+
+  const body = { name, edition, host, source, timeout_sec: timeoutSec, enabled };
+  if (port !== null) body.port = port;
+  return body;
+}
+
+function resetMinecraftForm() {
+  const form = document.getElementById("mc-form");
+  if (form) form.reset();
+  if (mcEditIdInput) mcEditIdInput.value = "";
+  if (mcFormTitleEl) mcFormTitleEl.textContent = "添加 Minecraft 挂件";
+  if (mcSubmitBtn) mcSubmitBtn.textContent = "创建挂件";
+  if (mcCancelEditBtn) mcCancelEditBtn.classList.add("hidden");
+  const enabled = document.getElementById("mc-enabled");
+  if (enabled) enabled.checked = true;
+  const timeout = document.getElementById("mc-timeout");
+  if (timeout) timeout.value = "6";
+  const source = document.getElementById("mc-source");
+  if (source) source.value = "auto";
+}
+
+function editMinecraftWidget(widget) {
+  if (mcEditIdInput) mcEditIdInput.value = widget.id;
+  if (mcFormTitleEl) mcFormTitleEl.textContent = "编辑 Minecraft 挂件";
+  if (mcSubmitBtn) mcSubmitBtn.textContent = "保存挂件";
+  if (mcCancelEditBtn) mcCancelEditBtn.classList.remove("hidden");
+
+  document.getElementById("mc-name").value = widget.name || "";
+  document.getElementById("mc-edition").value = widget.kind === "minecraft-bedrock" ? "bedrock" : "java";
+  document.getElementById("mc-host").value = widget.config?.host || "";
+  document.getElementById("mc-port").value = widget.config?.port ? String(widget.config.port) : "";
+  document.getElementById("mc-source").value = widget.config?.source || "auto";
+  document.getElementById("mc-timeout").value = String(widget.config?.timeout_sec || 6);
+  document.getElementById("mc-enabled").checked = widget.enabled !== false;
+  document.getElementById("mc-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function applyWidgetIcon(node, payload) {
@@ -411,42 +493,7 @@ function renderWidgets(widgets) {
     });
 
     node.querySelector(".edit-btn").addEventListener("click", async () => {
-      const name = prompt("挂件名称", widget.name);
-      if (name === null) return;
-
-      const host = prompt("服务器主机", widget.config.host || "");
-      if (host === null) return;
-
-      const portRaw = prompt("端口（留空用默认）", String(widget.config.port || ""));
-      if (portRaw === null) return;
-
-      const currentEdition = widget.kind === "minecraft-bedrock" ? "bedrock" : "java";
-      const edition = prompt("版本（java/bedrock）", currentEdition);
-      if (edition === null) return;
-
-      const body = {
-        name: name.trim() || widget.name,
-        host: host.trim() || widget.config.host,
-        edition: edition.trim().toLowerCase() || currentEdition,
-        enabled: widget.enabled,
-      };
-      if (portRaw.trim()) {
-        body.port = Number(portRaw.trim());
-      }
-
-      try {
-        await request(
-          `/api/widgets/${widget.id}/minecraft`,
-          {
-            method: "PUT",
-            body: JSON.stringify(body),
-          },
-          { admin: true },
-        );
-        await loadDashboard({ forceSync: false });
-      } catch (error) {
-        alert(error.message);
-      }
+      editMinecraftWidget(widget);
     });
 
     node.querySelector(".delete-btn").addEventListener("click", async () => {
@@ -476,21 +523,44 @@ function updateCustomThemeRangeOutputs() {
   updateRangeOutput("custom-font-scale", "custom-font-scale-output");
   updateRangeOutput("custom-radius-scale", "custom-radius-scale-output");
   updateRangeOutput("custom-shadow-strength", "custom-shadow-strength-output");
+  updateRangeOutput("custom-panel-opacity", "custom-panel-opacity-output");
+  updateRangeOutput("custom-card-opacity", "custom-card-opacity-output");
+  updateRangeOutput("custom-input-opacity", "custom-input-opacity-output");
+  updateRangeOutput("custom-overlay-opacity", "custom-overlay-opacity-output");
 }
 
 function readCustomThemeForm() {
   const current = window.MeowTheme.getCurrentCustomTheme?.() || DEFAULT_THEME_FONT_SETTINGS;
+  const headingLegacy = current.heading_font || DEFAULT_THEME_FONT_SETTINGS.heading_font;
+  const bodyLegacy = current.body_font || DEFAULT_THEME_FONT_SETTINGS.body_font;
+
   return window.MeowTheme.normalizeCustomTheme({
     enabled: document.getElementById("custom-enabled")?.checked,
     background: document.getElementById("custom-background")?.value,
     accent: document.getElementById("custom-accent")?.value,
     mode: document.getElementById("custom-mode")?.value,
     background_style: document.getElementById("custom-background-style")?.value,
-    heading_font: current.heading_font || DEFAULT_THEME_FONT_SETTINGS.heading_font,
-    body_font: current.body_font || DEFAULT_THEME_FONT_SETTINGS.body_font,
+    heading_font: headingLegacy,
+    body_font: bodyLegacy,
+    heading_font_latin: current.heading_font_latin || headingLegacy || DEFAULT_THEME_FONT_SETTINGS.heading_font_latin,
+    heading_font_cjk: current.heading_font_cjk || headingLegacy || DEFAULT_THEME_FONT_SETTINGS.heading_font_cjk,
+    body_font_latin: current.body_font_latin || bodyLegacy || DEFAULT_THEME_FONT_SETTINGS.body_font_latin,
+    body_font_cjk: current.body_font_cjk || bodyLegacy || DEFAULT_THEME_FONT_SETTINGS.body_font_cjk,
+    widget_title_font_latin:
+      current.widget_title_font_latin || DEFAULT_THEME_FONT_SETTINGS.widget_title_font_latin,
+    widget_title_font_cjk:
+      current.widget_title_font_cjk || DEFAULT_THEME_FONT_SETTINGS.widget_title_font_cjk,
+    widget_body_font_latin:
+      current.widget_body_font_latin || DEFAULT_THEME_FONT_SETTINGS.widget_body_font_latin,
+    widget_body_font_cjk:
+      current.widget_body_font_cjk || DEFAULT_THEME_FONT_SETTINGS.widget_body_font_cjk,
     font_scale: Number(document.getElementById("custom-font-scale")?.value || 100),
     radius_scale: Number(document.getElementById("custom-radius-scale")?.value || 100),
     shadow_strength: Number(document.getElementById("custom-shadow-strength")?.value || 100),
+    panel_opacity: Number(document.getElementById("custom-panel-opacity")?.value || 100),
+    card_opacity: Number(document.getElementById("custom-card-opacity")?.value || 46),
+    input_opacity: Number(document.getElementById("custom-input-opacity")?.value || 100),
+    overlay_opacity: Number(document.getElementById("custom-overlay-opacity")?.value || 58),
   });
 }
 
@@ -513,6 +583,10 @@ function populateCustomThemeForm(rawTheme) {
   setValue("custom-font-scale", theme.font_scale);
   setValue("custom-radius-scale", theme.radius_scale);
   setValue("custom-shadow-strength", theme.shadow_strength);
+  setValue("custom-panel-opacity", theme.panel_opacity);
+  setValue("custom-card-opacity", theme.card_opacity);
+  setValue("custom-input-opacity", theme.input_opacity);
+  setValue("custom-overlay-opacity", theme.overlay_opacity);
 
   updateCustomThemeRangeOutputs();
 }
@@ -562,6 +636,61 @@ function updateAssetOpacityOutput() {
 
 function normalizeCustomAssetsConfig(raw) {
   return window.MeowTheme.normalizeCustomAssets(raw || DEFAULT_CUSTOM_ASSETS);
+}
+
+function adminLocalAssetUrl(kind, relPath) {
+  const clean = String(relPath || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((part) => part && part !== "." && part !== "..")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return clean ? `/api/admin/local-assets/${kind}/${clean}` : "";
+}
+
+function publicLocalAssetUrl(kind, relPath) {
+  const clean = String(relPath || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((part) => part && part !== "." && part !== "..")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return clean ? `/local-assets/${kind}/${clean}` : "";
+}
+
+function revokeAdminAssetPreviewUrls() {
+  adminAssetPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+  adminAssetPreviewUrls = [];
+}
+
+async function fetchAdminAssetBlobUrl(kind, relPath) {
+  const url = adminLocalAssetUrl(kind, relPath);
+  if (!url) return "";
+  const response = await fetch(url, { headers: { "X-Admin-Token": adminToken } });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `素材预览加载失败 (${response.status})`);
+  }
+  const objectUrl = URL.createObjectURL(await response.blob());
+  adminAssetPreviewUrls.push(objectUrl);
+  return objectUrl;
+}
+
+async function buildAdminAssetPreviewResolver(assets) {
+  revokeAdminAssetPreviewUrls();
+  const map = new Map();
+  if (assets.background_enabled && assets.background_file) {
+    map.set(`bg/${assets.background_file}`, await fetchAdminAssetBlobUrl("bg", assets.background_file));
+  }
+  if (assets.font_enabled && assets.font_latin_file) {
+    map.set(`fonts/${assets.font_latin_file}`, await fetchAdminAssetBlobUrl("fonts", assets.font_latin_file));
+  }
+  if (assets.font_enabled && assets.font_cjk_file) {
+    map.set(`fonts/${assets.font_cjk_file}`, await fetchAdminAssetBlobUrl("fonts", assets.font_cjk_file));
+  }
+  return (kind, relPath) => map.get(`${kind}/${relPath}`) || publicLocalAssetUrl(kind, relPath);
 }
 
 function formatFontOptionLabel(font) {
@@ -639,8 +768,14 @@ function populateAssetForm(rawAssets, rawTheme = null) {
   const fontEnabled = document.getElementById("asset-font-enabled");
   const latin = document.getElementById("asset-font-latin");
   const cjk = document.getElementById("asset-font-cjk");
-  const heading = document.getElementById("asset-theme-heading-font");
-  const body = document.getElementById("asset-theme-body-font");
+  const headingLatin = document.getElementById("asset-theme-heading-font-latin");
+  const headingCjk = document.getElementById("asset-theme-heading-font-cjk");
+  const bodyLatin = document.getElementById("asset-theme-body-font-latin");
+  const bodyCjk = document.getElementById("asset-theme-body-font-cjk");
+  const widgetTitleLatin = document.getElementById("asset-widget-title-font-latin");
+  const widgetTitleCjk = document.getElementById("asset-widget-title-font-cjk");
+  const widgetBodyLatin = document.getElementById("asset-widget-body-font-latin");
+  const widgetBodyCjk = document.getElementById("asset-widget-body-font-cjk");
 
   if (bgEnabled) bgEnabled.checked = Boolean(assets.background_enabled);
   if (bgFile) bgFile.value = assets.background_file || "";
@@ -648,8 +783,14 @@ function populateAssetForm(rawAssets, rawTheme = null) {
   if (fontEnabled) fontEnabled.checked = Boolean(assets.font_enabled);
   if (latin) latin.value = assets.font_latin_file || "";
   if (cjk) cjk.value = assets.font_cjk_file || "";
-  if (heading) heading.value = themeFonts.heading_font;
-  if (body) body.value = themeFonts.body_font;
+  if (headingLatin) headingLatin.value = themeFonts.heading_font_latin;
+  if (headingCjk) headingCjk.value = themeFonts.heading_font_cjk;
+  if (bodyLatin) bodyLatin.value = themeFonts.body_font_latin;
+  if (bodyCjk) bodyCjk.value = themeFonts.body_font_cjk;
+  if (widgetTitleLatin) widgetTitleLatin.value = themeFonts.widget_title_font_latin;
+  if (widgetTitleCjk) widgetTitleCjk.value = themeFonts.widget_title_font_cjk;
+  if (widgetBodyLatin) widgetBodyLatin.value = themeFonts.widget_body_font_latin;
+  if (widgetBodyCjk) widgetBodyCjk.value = themeFonts.widget_body_font_cjk;
 
   updateAssetOpacityOutput();
 }
@@ -667,23 +808,76 @@ function readAssetForm() {
 
 function normalizeThemeFontSettings(raw) {
   const input = raw && typeof raw === "object" ? raw : {};
-  const heading = String(input.heading_font || DEFAULT_THEME_FONT_SETTINGS.heading_font).toLowerCase();
-  const body = String(input.body_font || DEFAULT_THEME_FONT_SETTINGS.body_font).toLowerCase();
+  const normalizeChoice = (value, fallback, { allowInherit = false } = {}) => {
+    const choice = String(value || "").toLowerCase();
+    const supported = allowInherit ? SUPPORTED_COMPONENT_THEME_FONTS : SUPPORTED_THEME_FONTS;
+    return supported.has(choice) ? choice : fallback;
+  };
+
+  const legacyHeading = normalizeChoice(input.heading_font, DEFAULT_THEME_FONT_SETTINGS.heading_font);
+  const legacyBody = normalizeChoice(input.body_font, DEFAULT_THEME_FONT_SETTINGS.body_font);
+  const headingLatin = normalizeChoice(input.heading_font_latin, legacyHeading);
+  const headingCjk = normalizeChoice(input.heading_font_cjk, legacyHeading);
+  const bodyLatin = normalizeChoice(input.body_font_latin, legacyBody);
+  const bodyCjk = normalizeChoice(input.body_font_cjk, legacyBody);
+  const widgetTitleLatin = normalizeChoice(
+    input.widget_title_font_latin,
+    DEFAULT_THEME_FONT_SETTINGS.widget_title_font_latin,
+    { allowInherit: true },
+  );
+  const widgetTitleCjk = normalizeChoice(
+    input.widget_title_font_cjk,
+    DEFAULT_THEME_FONT_SETTINGS.widget_title_font_cjk,
+    { allowInherit: true },
+  );
+  const widgetBodyLatin = normalizeChoice(
+    input.widget_body_font_latin,
+    DEFAULT_THEME_FONT_SETTINGS.widget_body_font_latin,
+    { allowInherit: true },
+  );
+  const widgetBodyCjk = normalizeChoice(
+    input.widget_body_font_cjk,
+    DEFAULT_THEME_FONT_SETTINGS.widget_body_font_cjk,
+    { allowInherit: true },
+  );
+
   return {
-    heading_font: SUPPORTED_THEME_FONTS.has(heading) ? heading : DEFAULT_THEME_FONT_SETTINGS.heading_font,
-    body_font: SUPPORTED_THEME_FONTS.has(body) ? body : DEFAULT_THEME_FONT_SETTINGS.body_font,
+    heading_font: headingLatin,
+    body_font: bodyLatin,
+    heading_font_latin: headingLatin,
+    heading_font_cjk: headingCjk,
+    body_font_latin: bodyLatin,
+    body_font_cjk: bodyCjk,
+    widget_title_font_latin: widgetTitleLatin,
+    widget_title_font_cjk: widgetTitleCjk,
+    widget_body_font_latin: widgetBodyLatin,
+    widget_body_font_cjk: widgetBodyCjk,
   };
 }
 
 function readAssetThemeFontForm() {
   return normalizeThemeFontSettings({
-    heading_font: document.getElementById("asset-theme-heading-font")?.value || DEFAULT_THEME_FONT_SETTINGS.heading_font,
-    body_font: document.getElementById("asset-theme-body-font")?.value || DEFAULT_THEME_FONT_SETTINGS.body_font,
+    heading_font_latin:
+      document.getElementById("asset-theme-heading-font-latin")?.value || DEFAULT_THEME_FONT_SETTINGS.heading_font_latin,
+    heading_font_cjk:
+      document.getElementById("asset-theme-heading-font-cjk")?.value || DEFAULT_THEME_FONT_SETTINGS.heading_font_cjk,
+    body_font_latin:
+      document.getElementById("asset-theme-body-font-latin")?.value || DEFAULT_THEME_FONT_SETTINGS.body_font_latin,
+    body_font_cjk:
+      document.getElementById("asset-theme-body-font-cjk")?.value || DEFAULT_THEME_FONT_SETTINGS.body_font_cjk,
+    widget_title_font_latin:
+      document.getElementById("asset-widget-title-font-latin")?.value || DEFAULT_THEME_FONT_SETTINGS.widget_title_font_latin,
+    widget_title_font_cjk:
+      document.getElementById("asset-widget-title-font-cjk")?.value || DEFAULT_THEME_FONT_SETTINGS.widget_title_font_cjk,
+    widget_body_font_latin:
+      document.getElementById("asset-widget-body-font-latin")?.value || DEFAULT_THEME_FONT_SETTINGS.widget_body_font_latin,
+    widget_body_font_cjk:
+      document.getElementById("asset-widget-body-font-cjk")?.value || DEFAULT_THEME_FONT_SETTINGS.widget_body_font_cjk,
   });
 }
 
 async function loadDashboard({ forceSync = false } = {}) {
-  const dashboard = await request("/api/dashboard", { method: "GET" });
+  const dashboard = await request("/api/admin/dashboard", { method: "GET" }, { admin: true });
   renderProfile(dashboard.profile_status);
   renderWidgets(dashboard.widgets || []);
 
@@ -753,35 +947,35 @@ function bindMinecraftForm() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const name = document.getElementById("mc-name").value.trim();
-    const edition = document.getElementById("mc-edition").value;
-    const host = document.getElementById("mc-host").value.trim();
-    const portValue = document.getElementById("mc-port").value;
-
-    const body = { name, edition, host };
-    if (portValue) body.port = Number(portValue);
-
     try {
+      const body = readMinecraftForm();
+      const editId = String(mcEditIdInput?.value || "").trim();
+      const path = editId ? `/api/widgets/${editId}/minecraft` : "/api/widgets/minecraft";
+      const method = editId ? "PUT" : "POST";
       await request(
-        "/api/widgets/minecraft",
+        path,
         {
-          method: "POST",
+          method,
           body: JSON.stringify(body),
         },
         { admin: true },
       );
-      form.reset();
+      resetMinecraftForm();
       await loadDashboard({ forceSync: false });
     } catch (error) {
       alert(error.message);
     }
+  });
+
+  mcCancelEditBtn?.addEventListener("click", () => {
+    resetMinecraftForm();
   });
 }
 
 function bindGlobalRefresh() {
   document.getElementById("refresh-all").addEventListener("click", async () => {
     try {
-      const widgets = await request("/api/widgets", { method: "GET" });
+      const widgets = await request("/api/admin/widgets", { method: "GET" }, { admin: true });
       await Promise.all(
         (widgets.items || []).map((widget) =>
           request(`/api/widgets/${widget.id}/refresh`, { method: "POST", body: "{}" }, { admin: true }),
@@ -812,7 +1006,15 @@ function bindThemePanel() {
 function bindCustomThemePanel() {
   if (!customThemeForm || !window.MeowTheme) return;
 
-  ["custom-font-scale", "custom-radius-scale", "custom-shadow-strength"].forEach((id) => {
+  [
+    "custom-font-scale",
+    "custom-radius-scale",
+    "custom-shadow-strength",
+    "custom-panel-opacity",
+    "custom-card-opacity",
+    "custom-input-opacity",
+    "custom-overlay-opacity",
+  ].forEach((id) => {
     const input = document.getElementById(id);
     if (!input) return;
     input.addEventListener("input", updateCustomThemeRangeOutputs);
@@ -854,6 +1056,14 @@ function bindCustomThemePanel() {
     const defaults = window.MeowTheme.normalizeCustomTheme({});
     defaults.heading_font = current.heading_font || defaults.heading_font;
     defaults.body_font = current.body_font || defaults.body_font;
+    defaults.heading_font_latin = current.heading_font_latin || defaults.heading_font;
+    defaults.heading_font_cjk = current.heading_font_cjk || defaults.heading_font;
+    defaults.body_font_latin = current.body_font_latin || defaults.body_font;
+    defaults.body_font_cjk = current.body_font_cjk || defaults.body_font;
+    defaults.widget_title_font_latin = current.widget_title_font_latin || defaults.widget_title_font_latin;
+    defaults.widget_title_font_cjk = current.widget_title_font_cjk || defaults.widget_title_font_cjk;
+    defaults.widget_body_font_latin = current.widget_body_font_latin || defaults.widget_body_font_latin;
+    defaults.widget_body_font_cjk = current.widget_body_font_cjk || defaults.widget_body_font_cjk;
     populateCustomThemeForm(defaults);
     window.MeowTheme.previewCustomTheme(defaults, activeThemeId || window.MeowTheme.getCurrentTheme());
     setCustomThemeMessage("已恢复默认自定义参数（不影响字体设置），你可以直接保存。", false);
@@ -899,17 +1109,22 @@ function bindAssetPanel() {
   document.getElementById("asset-bg-opacity")?.addEventListener("input", updateAssetOpacityOutput);
 
   assetPreviewBtn?.addEventListener("click", () => {
-    try {
-      const assets = readAssetForm();
-      const fontTheme = readAssetThemeFontForm();
-      const currentTheme = window.MeowTheme.getCurrentCustomTheme?.() || {};
-      const mergedTheme = window.MeowTheme.normalizeCustomTheme({ ...currentTheme, ...fontTheme });
-      window.MeowTheme.previewCustomTheme(mergedTheme, activeThemeId || window.MeowTheme.getCurrentTheme());
-      window.MeowTheme.previewCustomAssets(assets, activeThemeId || window.MeowTheme.getCurrentTheme(), mergedTheme);
-      setAssetMessage("已应用本地素材与字体预览（未保存）。", false);
-    } catch (error) {
-      setAssetMessage(`预览失败：${error.message}`, true);
-    }
+    void (async () => {
+      try {
+        const assets = readAssetForm();
+        const fontTheme = readAssetThemeFontForm();
+        const currentTheme = window.MeowTheme.getCurrentCustomTheme?.() || {};
+        const mergedTheme = window.MeowTheme.normalizeCustomTheme({ ...currentTheme, ...fontTheme });
+        const assetUrlResolver = await buildAdminAssetPreviewResolver(assets);
+        window.MeowTheme.previewCustomTheme(mergedTheme, activeThemeId || window.MeowTheme.getCurrentTheme());
+        window.MeowTheme.previewCustomAssets(assets, activeThemeId || window.MeowTheme.getCurrentTheme(), mergedTheme, {
+          assetUrlResolver,
+        });
+        setAssetMessage("已应用本地素材与字体预览（未保存）。", false);
+      } catch (error) {
+        setAssetMessage(`预览失败：${error.message}`, true);
+      }
+    })();
   });
 
   assetSaveBtn?.addEventListener("click", async () => {
@@ -931,6 +1146,7 @@ function bindAssetPanel() {
       );
       await window.MeowTheme.saveCustomAssets(assets, adminToken);
 
+      revokeAdminAssetPreviewUrls();
       assetInitialized = false;
       customThemeInitialized = false;
       await loadDashboard({ forceSync: true });
@@ -941,6 +1157,7 @@ function bindAssetPanel() {
   });
 
   assetResetBtn?.addEventListener("click", () => {
+    revokeAdminAssetPreviewUrls();
     const defaultAssets = window.MeowTheme.normalizeCustomAssets({});
     const currentTheme = window.MeowTheme.getCurrentCustomTheme?.() || {};
     const defaultFonts = normalizeThemeFontSettings({});
@@ -957,6 +1174,7 @@ function bindAssetPanel() {
 }
 
 function openAuthModal() {
+  revokeAdminAssetPreviewUrls();
   authModal.classList.remove("hidden");
   loginForm.classList.remove("hidden");
   rotateForm.classList.add("hidden");

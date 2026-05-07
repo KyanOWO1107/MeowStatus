@@ -83,9 +83,11 @@ SUPPORTED_UI_THEMES = {
 SUPPORTED_THEME_MODES = {"auto", "light", "dark"}
 SUPPORTED_BACKGROUND_STYLES = {"gradient", "solid"}
 SUPPORTED_FONT_CHOICES = {"default", "mono", "serif", "round", "display"}
+SUPPORTED_COMPONENT_FONT_CHOICES = SUPPORTED_FONT_CHOICES | {"inherit"}
 HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 LOCAL_BG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 LOCAL_FONT_EXTENSIONS = {".ttf", ".otf", ".ttc", ".woff", ".woff2"}
+MAX_JSON_BODY_BYTES = 64 * 1024
 FONT_LICENSE_ALLOWED_MARKERS = (
     "sil open font license",
     "open font license",
@@ -233,9 +235,26 @@ class AppContext:
 class MeowStatusHandler(BaseHTTPRequestHandler):
     context: AppContext
 
+    def handle_one_request(self) -> None:
+        try:
+            super().handle_one_request()
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Unhandled request error: method=%s path=%s client=%s",
+                getattr(self, "command", "-"),
+                getattr(self, "path", "-"),
+                self.client_address,
+            )
+            self.close_connection = True
+            try:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Internal server error"})
+            except Exception:  # noqa: BLE001
+                pass
+
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(HTTPStatus.NO_CONTENT)
         self._send_cors_headers()
+        self._send_security_headers()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Token, Authorization")
         self.end_headers()
@@ -259,7 +278,7 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
 
         if path.startswith("/local-assets/"):
             rel_path = unquote(path[len("/local-assets/") :])
-            self._serve_local_asset(rel_path)
+            self._serve_local_asset(rel_path, require_saved_reference=True)
             return
 
         if path == "/api/health":
@@ -303,6 +322,38 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, self._scan_local_assets())
             return
 
+        if path.startswith("/api/admin/local-assets/"):
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+            rel_path = unquote(path[len("/api/admin/local-assets/") :])
+            self._serve_local_asset(rel_path, require_saved_reference=False)
+            return
+
+        if path == "/api/admin/widgets":
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+            query = parse_qs(parsed.query)
+            kind = query.get("kind", [None])[0]
+            widgets = self.context.store.list_widgets(kind=kind)
+            self._send_json(HTTPStatus.OK, {"items": widgets})
+            return
+
+        if path == "/api/admin/dashboard":
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+            payload = {
+                "profile_status": self.context.store.get_profile_status(),
+                "widgets": self.context.store.list_widgets(),
+                "providers": self.context.registry.list_kinds(),
+                "theme": self.context.store.get_ui_theme(),
+                "custom_theme": self.context.store.get_ui_custom_theme(),
+                "copy": self.context.store.get_ui_copy(),
+                "custom_assets": self.context.store.get_ui_custom_assets(),
+                "generated_at": utc_now_iso(),
+            }
+            self._send_json(HTTPStatus.OK, payload)
+            return
+
         if path == "/api/profile/status":
             profile = self.context.store.get_profile_status()
             self._send_json(HTTPStatus.OK, profile)
@@ -311,13 +362,13 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
         if path == "/api/widgets":
             query = parse_qs(parsed.query)
             kind = query.get("kind", [None])[0]
-            widgets = self.context.store.list_widgets(kind=kind)
+            widgets = self.context.store.list_public_widgets(kind=kind)
             self._send_json(HTTPStatus.OK, {"items": widgets})
             return
 
         widget_id, action = self._parse_widget_path(path)
         if widget_id and action is None:
-            widget = self.context.store.get_widget(widget_id)
+            widget = self.context.store.get_public_widget(widget_id)
             if widget is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "Widget not found"})
             else:
@@ -327,7 +378,7 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
         if path == "/api/dashboard":
             payload = {
                 "profile_status": self.context.store.get_profile_status(),
-                "widgets": self.context.store.list_widgets(),
+                "widgets": self.context.store.list_public_widgets(),
                 "providers": self.context.registry.list_kinds(),
                 "theme": self.context.store.get_ui_theme(),
                 "custom_theme": self.context.store.get_ui_custom_theme(),
@@ -646,7 +697,21 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             return None
 
         try:
-            raw = self.rfile.read(int(content_length))
+            size = int(content_length)
+        except ValueError:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid Content-Length"})
+            return None
+
+        if size <= 0:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Request body is required"})
+            return None
+
+        if size > MAX_JSON_BODY_BYTES:
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Request body is too large"})
+            return None
+
+        try:
+            raw = self.rfile.read(size)
             body = json.loads(raw.decode("utf-8"))
         except (ValueError, json.JSONDecodeError):
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON body"})
@@ -677,12 +742,13 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
 
         self.send_response(HTTPStatus.OK)
         self._send_cors_headers()
+        self._send_security_headers()
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
-    def _serve_local_asset(self, relative_path: str) -> None:
+    def _serve_local_asset(self, relative_path: str, *, require_saved_reference: bool) -> None:
         decoded = str(relative_path or "").strip().replace("\\", "/")
         parts = [part for part in decoded.split("/") if part and part not in {".", ".."}]
         if len(parts) < 2:
@@ -704,6 +770,10 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             return
 
         rel_path = "/".join(parts[1:])
+        if require_saved_reference and not self._is_public_local_asset_allowed(category, rel_path):
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "File not found"})
+            return
+
         requested = (base_dir / rel_path).resolve()
         if base_dir not in requested.parents and requested != base_dir:
             self._send_json(HTTPStatus.FORBIDDEN, {"error": "Forbidden"})
@@ -713,22 +783,45 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "File not found"})
             return
 
+        allowed_extensions = LOCAL_BG_EXTENSIONS if category == "bg" else LOCAL_FONT_EXTENSIONS
+        if requested.suffix.lower() not in allowed_extensions:
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "File not found"})
+            return
+
         mime, _ = mimetypes.guess_type(str(requested))
         content_type = mime or "application/octet-stream"
         data = requested.read_bytes()
 
         self.send_response(HTTPStatus.OK)
         self._send_cors_headers()
+        self._send_security_headers()
         self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "public, max-age=300")
+        cache_control = "public, max-age=300" if require_saved_reference else "no-store"
+        self.send_header("Cache-Control", cache_control)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _is_public_local_asset_allowed(self, category: str, rel_path: str) -> bool:
+        assets = self.context.store.get_ui_custom_assets()
+        if category == "bg":
+            return bool(assets.get("background_enabled")) and rel_path == str(assets.get("background_file", ""))
+
+        if category == "fonts":
+            if not bool(assets.get("font_enabled")):
+                return False
+            return rel_path in {
+                str(assets.get("font_latin_file", "")),
+                str(assets.get("font_cjk_file", "")),
+            }
+
+        return False
 
     def _send_json(self, status: HTTPStatus, payload: dict, *, extra_headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self._send_cors_headers()
+        self._send_security_headers()
         if extra_headers:
             for key, value in extra_headers.items():
                 self.send_header(key, value)
@@ -738,7 +831,28 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin", "").strip()
+        if not origin:
+            return
+
+        allowed = self.context.config.cors_origins
+        if "*" in allowed:
+            self.send_header("Access-Control-Allow-Origin", "*")
+            return
+
+        if origin in allowed:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def _send_security_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; "
+            "img-src 'self' data: blob:; font-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+            "base-uri 'self'; frame-ancestors 'none'",
+        )
 
     def _parse_widget_path(self, path: str) -> tuple[str | None, str | None]:
         parts = [part for part in path.split("/") if part]
@@ -906,13 +1020,54 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             style if style in SUPPORTED_BACKGROUND_STYLES else DEFAULT_UI_CUSTOM_THEME["background_style"]
         )
 
-        heading_font = str(payload.get("heading_font", DEFAULT_UI_CUSTOM_THEME["heading_font"])).strip().lower()
-        normalized["heading_font"] = (
-            heading_font if heading_font in SUPPORTED_FONT_CHOICES else DEFAULT_UI_CUSTOM_THEME["heading_font"]
+        def normalize_font_choice(value: object, default: str, *, allow_inherit: bool = False) -> str:
+            raw = str(value if value is not None else "").strip().lower()
+            supported = SUPPORTED_COMPONENT_FONT_CHOICES if allow_inherit else SUPPORTED_FONT_CHOICES
+            return raw if raw in supported else default
+
+        default_heading = str(DEFAULT_UI_CUSTOM_THEME["heading_font"])
+        default_body = str(DEFAULT_UI_CUSTOM_THEME["body_font"])
+
+        legacy_heading = normalize_font_choice(payload.get("heading_font"), default_heading)
+        legacy_body = normalize_font_choice(payload.get("body_font"), default_body)
+
+        heading_font_latin = normalize_font_choice(payload.get("heading_font_latin"), legacy_heading)
+        heading_font_cjk = normalize_font_choice(payload.get("heading_font_cjk"), legacy_heading)
+        body_font_latin = normalize_font_choice(payload.get("body_font_latin"), legacy_body)
+        body_font_cjk = normalize_font_choice(payload.get("body_font_cjk"), legacy_body)
+
+        widget_title_font_latin = normalize_font_choice(
+            payload.get("widget_title_font_latin"),
+            str(DEFAULT_UI_CUSTOM_THEME["widget_title_font_latin"]),
+            allow_inherit=True,
+        )
+        widget_title_font_cjk = normalize_font_choice(
+            payload.get("widget_title_font_cjk"),
+            str(DEFAULT_UI_CUSTOM_THEME["widget_title_font_cjk"]),
+            allow_inherit=True,
+        )
+        widget_body_font_latin = normalize_font_choice(
+            payload.get("widget_body_font_latin"),
+            str(DEFAULT_UI_CUSTOM_THEME["widget_body_font_latin"]),
+            allow_inherit=True,
+        )
+        widget_body_font_cjk = normalize_font_choice(
+            payload.get("widget_body_font_cjk"),
+            str(DEFAULT_UI_CUSTOM_THEME["widget_body_font_cjk"]),
+            allow_inherit=True,
         )
 
-        body_font = str(payload.get("body_font", DEFAULT_UI_CUSTOM_THEME["body_font"])).strip().lower()
-        normalized["body_font"] = body_font if body_font in SUPPORTED_FONT_CHOICES else DEFAULT_UI_CUSTOM_THEME["body_font"]
+        # Keep legacy fields for backward compatibility.
+        normalized["heading_font"] = heading_font_latin
+        normalized["body_font"] = body_font_latin
+        normalized["heading_font_latin"] = heading_font_latin
+        normalized["heading_font_cjk"] = heading_font_cjk
+        normalized["body_font_latin"] = body_font_latin
+        normalized["body_font_cjk"] = body_font_cjk
+        normalized["widget_title_font_latin"] = widget_title_font_latin
+        normalized["widget_title_font_cjk"] = widget_title_font_cjk
+        normalized["widget_body_font_latin"] = widget_body_font_latin
+        normalized["widget_body_font_cjk"] = widget_body_font_cjk
 
         normalized["font_scale"] = self._normalize_int_range(
             payload.get("font_scale"),
@@ -931,6 +1086,30 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             default=int(DEFAULT_UI_CUSTOM_THEME["shadow_strength"]),
             min_value=50,
             max_value=180,
+        )
+        normalized["panel_opacity"] = self._normalize_int_range(
+            payload.get("panel_opacity"),
+            default=int(DEFAULT_UI_CUSTOM_THEME["panel_opacity"]),
+            min_value=35,
+            max_value=100,
+        )
+        normalized["card_opacity"] = self._normalize_int_range(
+            payload.get("card_opacity"),
+            default=int(DEFAULT_UI_CUSTOM_THEME["card_opacity"]),
+            min_value=20,
+            max_value=100,
+        )
+        normalized["input_opacity"] = self._normalize_int_range(
+            payload.get("input_opacity"),
+            default=int(DEFAULT_UI_CUSTOM_THEME["input_opacity"]),
+            min_value=35,
+            max_value=100,
+        )
+        normalized["overlay_opacity"] = self._normalize_int_range(
+            payload.get("overlay_opacity"),
+            default=int(DEFAULT_UI_CUSTOM_THEME["overlay_opacity"]),
+            min_value=20,
+            max_value=90,
         )
 
         return normalized
@@ -1085,7 +1264,17 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
         return normalized
 
     def _client_identity_key(self) -> str:
-        # Reverse proxies should overwrite this by setting proper forwarding middleware.
+        if self.context.config.trust_proxy_headers:
+            real_ip = self.headers.get("X-Real-IP", "").strip()
+            if real_ip:
+                return real_ip
+
+            forwarded_for = self.headers.get("X-Forwarded-For", "").strip()
+            if forwarded_for:
+                first_hop = forwarded_for.split(",", 1)[0].strip()
+                if first_hop:
+                    return first_hop
+
         return self.client_address[0] or "unknown"
 
     def _enforce_auth_rate_limit(self, client_key: str) -> bool:
@@ -1138,8 +1327,12 @@ def run() -> None:
     context = build_context(config)
     MeowStatusHandler.context = context
 
-    if context.config.admin_bootstrap_token == "change-me" and context.store.is_admin_token_change_required():
-        logger.warning("MEOWSTATUS_ADMIN_TOKEN is still default value; please change it immediately")
+    if context.config.admin_bootstrap_token_generated and context.store.admin_bootstrap_token_was_stored:
+        logger.warning(
+            "Generated one-time bootstrap admin token for this new database: %s",
+            context.config.admin_bootstrap_token,
+        )
+        logger.warning("Use it once at %s, then set a new token immediately.", context.config.admin_path)
 
     server = ThreadingHTTPServer((context.config.host, context.config.port), MeowStatusHandler)
     logger.info("MeowStatus running on http://%s:%s", context.config.host, context.config.port)
@@ -1157,13 +1350,5 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-
-
-
-
-
-
-
-
 
 

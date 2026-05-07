@@ -158,7 +158,7 @@ function renderWidgets(widgets) {
     node.querySelector(".widget-name").textContent = widget.name;
     node.querySelector(".widget-kind").textContent = widget.kind;
     applyWidgetIcon(node, payload);
-    node.querySelector(".target").textContent = payload?.target || `${widget.config.host}:${widget.config.port}`;
+    node.querySelector(".target").textContent = payload?.target || "-";
     node.querySelector(".online").textContent = toOnlineText(payload);
     node.querySelector(".version").textContent = payload?.version || "-";
     node.querySelector(".software").textContent = payload?.server_software || "-";

@@ -9,9 +9,21 @@
     background_style: "gradient",
     heading_font: "default",
     body_font: "default",
+    heading_font_latin: "default",
+    heading_font_cjk: "default",
+    body_font_latin: "default",
+    body_font_cjk: "default",
+    widget_title_font_latin: "inherit",
+    widget_title_font_cjk: "inherit",
+    widget_body_font_latin: "inherit",
+    widget_body_font_cjk: "inherit",
     font_scale: 100,
     radius_scale: 100,
     shadow_strength: 100,
+    panel_opacity: 100,
+    card_opacity: 46,
+    input_opacity: 100,
+    overlay_opacity: 58,
   };
 
   const DEFAULT_CUSTOM_ASSETS = {
@@ -23,13 +35,27 @@
     font_cjk_file: "",
   };
 
-  const FONT_STACKS = {
-    default: '"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-    mono: '"Cascadia Mono", "JetBrains Mono", "Consolas", "Noto Sans Mono CJK SC", monospace',
-    serif: '"Source Han Serif SC", "Noto Serif SC", "STSong", "Songti SC", serif',
-    round: '"Nunito", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
-    display: '"Trebuchet MS", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+  const FONT_STACKS_LATIN = {
+    default: '"Segoe UI", "Helvetica Neue", "Arial", sans-serif',
+    mono: '"Cascadia Mono", "JetBrains Mono", "Consolas", monospace',
+    serif: '"Georgia", "Times New Roman", serif',
+    round: '"Nunito", "Segoe UI", "Trebuchet MS", sans-serif',
+    display: '"Trebuchet MS", "Verdana", "Segoe UI", sans-serif',
   };
+
+  const FONT_STACKS_CJK = {
+    default: '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", sans-serif',
+    mono: '"Noto Sans Mono CJK SC", "Sarasa Mono SC", "Cascadia Mono", "Consolas", monospace',
+    serif: '"Source Han Serif SC", "Noto Serif SC", "STSong", "Songti SC", serif',
+    round: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+    display: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+  };
+
+  const SUPPORTED_FONT_CHOICES = new Set(Object.keys(FONT_STACKS_LATIN));
+  const SUPPORTED_COMPONENT_FONT_CHOICES = new Set(["inherit", ...SUPPORTED_FONT_CHOICES]);
+  const LOCAL_LATIN_UNICODE_RANGE =
+    "U+0000-00FF, U+0100-024F, U+1E00-1EFF, U+2000-206F, U+20A0-20CF, U+2100-214F, U+2150-218F";
+  const LOCAL_CJK_UNICODE_RANGE = "U+2E80-2FDF, U+3040-30FF, U+31F0-31FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF";
 
   const THEMES = [
     { id: "bluery", name: "Bluery", background: "#37474F", accent: "#2196f3", mode: "dark" },
@@ -67,6 +93,7 @@
   let currentThemeId = DEFAULT_THEME_ID;
   let currentCustomTheme = { ...DEFAULT_CUSTOM_THEME };
   let currentCustomAssets = { ...DEFAULT_CUSTOM_ASSETS };
+  let currentAssetUrlResolver = localAssetUrl;
 
   function clampInt(value, min, max, fallback) {
     const num = Number(value);
@@ -221,6 +248,32 @@
 
   function normalizeCustomTheme(input) {
     const raw = typeof input === "object" && input ? input : {};
+    const normalizeFont = (value, fallback, { allowInherit = false } = {}) => {
+      const choice = String(value || "").toLowerCase();
+      const supported = allowInherit ? SUPPORTED_COMPONENT_FONT_CHOICES : SUPPORTED_FONT_CHOICES;
+      return supported.has(choice) ? choice : fallback;
+    };
+
+    const legacyHeading = normalizeFont(raw.heading_font, DEFAULT_CUSTOM_THEME.heading_font);
+    const legacyBody = normalizeFont(raw.body_font, DEFAULT_CUSTOM_THEME.body_font);
+    const headingFontLatin = normalizeFont(raw.heading_font_latin, legacyHeading);
+    const headingFontCjk = normalizeFont(raw.heading_font_cjk, legacyHeading);
+    const bodyFontLatin = normalizeFont(raw.body_font_latin, legacyBody);
+    const bodyFontCjk = normalizeFont(raw.body_font_cjk, legacyBody);
+
+    const widgetTitleFontLatin = normalizeFont(raw.widget_title_font_latin, DEFAULT_CUSTOM_THEME.widget_title_font_latin, {
+      allowInherit: true,
+    });
+    const widgetTitleFontCjk = normalizeFont(raw.widget_title_font_cjk, DEFAULT_CUSTOM_THEME.widget_title_font_cjk, {
+      allowInherit: true,
+    });
+    const widgetBodyFontLatin = normalizeFont(raw.widget_body_font_latin, DEFAULT_CUSTOM_THEME.widget_body_font_latin, {
+      allowInherit: true,
+    });
+    const widgetBodyFontCjk = normalizeFont(raw.widget_body_font_cjk, DEFAULT_CUSTOM_THEME.widget_body_font_cjk, {
+      allowInherit: true,
+    });
+
     return {
       enabled: Boolean(raw.enabled),
       background: normalizeHex(raw.background || DEFAULT_CUSTOM_THEME.background),
@@ -231,15 +284,23 @@
       background_style: ["gradient", "solid"].includes(String(raw.background_style || "").toLowerCase())
         ? String(raw.background_style).toLowerCase()
         : DEFAULT_CUSTOM_THEME.background_style,
-      heading_font: Object.prototype.hasOwnProperty.call(FONT_STACKS, String(raw.heading_font || "").toLowerCase())
-        ? String(raw.heading_font).toLowerCase()
-        : DEFAULT_CUSTOM_THEME.heading_font,
-      body_font: Object.prototype.hasOwnProperty.call(FONT_STACKS, String(raw.body_font || "").toLowerCase())
-        ? String(raw.body_font).toLowerCase()
-        : DEFAULT_CUSTOM_THEME.body_font,
+      heading_font: headingFontLatin,
+      body_font: bodyFontLatin,
+      heading_font_latin: headingFontLatin,
+      heading_font_cjk: headingFontCjk,
+      body_font_latin: bodyFontLatin,
+      body_font_cjk: bodyFontCjk,
+      widget_title_font_latin: widgetTitleFontLatin,
+      widget_title_font_cjk: widgetTitleFontCjk,
+      widget_body_font_latin: widgetBodyFontLatin,
+      widget_body_font_cjk: widgetBodyFontCjk,
       font_scale: clampInt(raw.font_scale, 85, 130, DEFAULT_CUSTOM_THEME.font_scale),
       radius_scale: clampInt(raw.radius_scale, 75, 150, DEFAULT_CUSTOM_THEME.radius_scale),
       shadow_strength: clampInt(raw.shadow_strength, 50, 180, DEFAULT_CUSTOM_THEME.shadow_strength),
+      panel_opacity: clampInt(raw.panel_opacity, 35, 100, DEFAULT_CUSTOM_THEME.panel_opacity),
+      card_opacity: clampInt(raw.card_opacity, 20, 100, DEFAULT_CUSTOM_THEME.card_opacity),
+      input_opacity: clampInt(raw.input_opacity, 35, 100, DEFAULT_CUSTOM_THEME.input_opacity),
+      overlay_opacity: clampInt(raw.overlay_opacity, 20, 90, DEFAULT_CUSTOM_THEME.overlay_opacity),
     };
   }
 
@@ -288,12 +349,13 @@
     });
   }
 
-  function applyCustomAssets(customAssets = currentCustomAssets) {
+  function applyCustomAssets(customAssets = currentCustomAssets, options = {}) {
     const normalizedAssets = normalizeCustomAssets(customAssets);
+    const assetUrl = typeof options.assetUrlResolver === "function" ? options.assetUrlResolver : currentAssetUrlResolver;
     const root = document.documentElement;
 
     if (normalizedAssets.background_enabled && normalizedAssets.background_file) {
-      const url = localAssetUrl("bg", normalizedAssets.background_file);
+      const url = assetUrl("bg", normalizedAssets.background_file);
       root.style.setProperty("--bg-photo-url", `url(\"${url}\")`);
       root.style.setProperty("--bg-photo-opacity", (normalizedAssets.background_opacity / 100).toFixed(2));
     } else {
@@ -309,40 +371,51 @@
     }
 
     const rules = [];
-    const latinUrl = normalizedAssets.font_enabled ? localAssetUrl("fonts", normalizedAssets.font_latin_file) : "";
-    const cjkUrl = normalizedAssets.font_enabled ? localAssetUrl("fonts", normalizedAssets.font_cjk_file) : "";
+    const latinUrl = normalizedAssets.font_enabled ? assetUrl("fonts", normalizedAssets.font_latin_file) : "";
+    const cjkUrl = normalizedAssets.font_enabled ? assetUrl("fonts", normalizedAssets.font_cjk_file) : "";
 
     if (latinUrl) {
       rules.push(
-        `@font-face { font-family: "MeowLocalLatin"; src: url("${latinUrl}") format("${fontFormatForPath(normalizedAssets.font_latin_file)}"); font-display: swap; }`,
+        `@font-face { font-family: "MeowLocalLatin"; src: url("${latinUrl}") format("${fontFormatForPath(normalizedAssets.font_latin_file)}"); font-display: swap; unicode-range: ${LOCAL_LATIN_UNICODE_RANGE}; }`,
       );
     }
     if (cjkUrl) {
       rules.push(
-        `@font-face { font-family: "MeowLocalCJK"; src: url("${cjkUrl}") format("${fontFormatForPath(normalizedAssets.font_cjk_file)}"); font-display: swap; }`,
+        `@font-face { font-family: "MeowLocalCJK"; src: url("${cjkUrl}") format("${fontFormatForPath(normalizedAssets.font_cjk_file)}"); font-display: swap; unicode-range: ${LOCAL_CJK_UNICODE_RANGE}; }`,
       );
     }
 
     styleEl.textContent = rules.join("\n");
 
     if (normalizedAssets.font_enabled && (latinUrl || cjkUrl)) {
-      const families = [];
-      if (latinUrl) families.push('"MeowLocalLatin"');
-      if (cjkUrl) families.push('"MeowLocalCJK"');
-      families.push("var(--body-font)");
-      const bodyStack = families.join(", ");
-      root.style.setProperty("--font-override-body", bodyStack);
-      root.style.setProperty("--font-override-heading", bodyStack.replace("var(--body-font)", "var(--heading-font)"));
+      const bodyFamilies = [];
+      const headingFamilies = [];
+      if (latinUrl) {
+        bodyFamilies.push('"MeowLocalLatin"');
+        headingFamilies.push('"MeowLocalLatin"');
+      }
+      if (cjkUrl) {
+        bodyFamilies.push('"MeowLocalCJK"');
+        headingFamilies.push('"MeowLocalCJK"');
+      }
+      bodyFamilies.push("var(--body-font)");
+      headingFamilies.push("var(--heading-font)");
+      root.style.setProperty("--font-override-body", bodyFamilies.join(", "));
+      root.style.setProperty("--font-override-heading", headingFamilies.join(", "));
+      root.style.setProperty("--font-override-widget-body", bodyFamilies.join(", "));
+      root.style.setProperty("--font-override-widget-title", headingFamilies.join(", "));
     } else {
       root.style.removeProperty("--font-override-body");
       root.style.removeProperty("--font-override-heading");
+      root.style.removeProperty("--font-override-widget-body");
+      root.style.removeProperty("--font-override-widget-title");
     }
 
     currentCustomAssets = normalizedAssets;
     return normalizedAssets;
   }
 
-  function applyPalette(themeId, customTheme = currentCustomTheme, customAssets = currentCustomAssets) {
+  function applyPalette(themeId, customTheme = currentCustomTheme, customAssets = currentCustomAssets, options = {}) {
     const normalizedCustom = normalizeCustomTheme(customTheme);
     const theme = resolveTheme(themeId, normalizedCustom);
     const palette = makePalette(theme);
@@ -352,6 +425,13 @@
 
     const root = document.documentElement;
     const shadowFactor = (normalizedCustom.shadow_strength || 100) / 100;
+    const panelAlpha = normalizedCustom.panel_opacity / 100;
+    const cardAlpha = normalizedCustom.card_opacity / 100;
+    const inputAlpha = normalizedCustom.input_opacity / 100;
+    const overlayAlpha = normalizedCustom.overlay_opacity / 100;
+    const cardSoftAlpha = Math.max(0.08, Math.min(1, cardAlpha * 0.66));
+    const heroAlpha = Math.max(0.08, Math.min(1, cardAlpha * 0.48));
+    const cardTint = isDarkTheme(theme) ? mixHex(palette.surfaceSoft, "#ffffff", 0.72) : "#ffffff";
 
     root.setAttribute("data-theme", theme.id);
     root.style.setProperty("--bg-top", palette.bgTop);
@@ -367,18 +447,63 @@
     root.style.setProperty("--danger", palette.danger);
     root.style.setProperty("--danger-strong", palette.dangerStrong);
     root.style.setProperty("--shadow", scaleShadowAlpha(palette.shadow, shadowFactor));
-    root.style.setProperty("--input-bg", palette.inputBg);
     root.style.setProperty("--bg-glow-secondary", palette.glowSecondary);
+    root.style.setProperty(
+      "--panel-bg",
+      `linear-gradient(160deg, ${hexToRgba(palette.surface, panelAlpha)}, ${hexToRgba(palette.surfaceSoft, panelAlpha)})`,
+    );
+    root.style.setProperty(
+      "--modal-card-bg",
+      `linear-gradient(165deg, ${hexToRgba(palette.surface, panelAlpha)}, ${hexToRgba(palette.surfaceSoft, panelAlpha)})`,
+    );
+    root.style.setProperty("--card-bg", hexToRgba(cardTint, cardAlpha));
+    root.style.setProperty("--card-bg-soft", hexToRgba(cardTint, cardSoftAlpha));
+    root.style.setProperty(
+      "--hero-bg",
+      `linear-gradient(160deg, ${hexToRgba(palette.accent, heroAlpha)}, ${hexToRgba(palette.surfaceSoft, heroAlpha)})`,
+    );
+    root.style.setProperty("--input-bg", hexToRgba(palette.surfaceSoft, inputAlpha));
+    root.style.setProperty("--modal-overlay-bg", `rgba(8, 12, 20, ${overlayAlpha.toFixed(2)})`);
 
-    root.style.setProperty("--heading-font", FONT_STACKS[normalizedCustom.heading_font] || FONT_STACKS.default);
-    root.style.setProperty("--body-font", FONT_STACKS[normalizedCustom.body_font] || FONT_STACKS.default);
+    const headingLatinChoice = normalizedCustom.heading_font_latin;
+    const headingCjkChoice = normalizedCustom.heading_font_cjk;
+    const bodyLatinChoice = normalizedCustom.body_font_latin;
+    const bodyCjkChoice = normalizedCustom.body_font_cjk;
+
+    const widgetTitleLatinChoice =
+      normalizedCustom.widget_title_font_latin === "inherit" ? headingLatinChoice : normalizedCustom.widget_title_font_latin;
+    const widgetTitleCjkChoice =
+      normalizedCustom.widget_title_font_cjk === "inherit" ? headingCjkChoice : normalizedCustom.widget_title_font_cjk;
+    const widgetBodyLatinChoice =
+      normalizedCustom.widget_body_font_latin === "inherit" ? bodyLatinChoice : normalizedCustom.widget_body_font_latin;
+    const widgetBodyCjkChoice =
+      normalizedCustom.widget_body_font_cjk === "inherit" ? bodyCjkChoice : normalizedCustom.widget_body_font_cjk;
+
+    const headingLatinStack = FONT_STACKS_LATIN[headingLatinChoice] || FONT_STACKS_LATIN.default;
+    const headingCjkStack = FONT_STACKS_CJK[headingCjkChoice] || FONT_STACKS_CJK.default;
+    const bodyLatinStack = FONT_STACKS_LATIN[bodyLatinChoice] || FONT_STACKS_LATIN.default;
+    const bodyCjkStack = FONT_STACKS_CJK[bodyCjkChoice] || FONT_STACKS_CJK.default;
+    const widgetTitleLatinStack = FONT_STACKS_LATIN[widgetTitleLatinChoice] || FONT_STACKS_LATIN.default;
+    const widgetTitleCjkStack = FONT_STACKS_CJK[widgetTitleCjkChoice] || FONT_STACKS_CJK.default;
+    const widgetBodyLatinStack = FONT_STACKS_LATIN[widgetBodyLatinChoice] || FONT_STACKS_LATIN.default;
+    const widgetBodyCjkStack = FONT_STACKS_CJK[widgetBodyCjkChoice] || FONT_STACKS_CJK.default;
+
+    root.style.setProperty("--heading-font", `${headingLatinStack}, ${headingCjkStack}`);
+    root.style.setProperty("--body-font", `${bodyLatinStack}, ${bodyCjkStack}`);
+    root.style.setProperty("--widget-title-font", `${widgetTitleLatinStack}, ${widgetTitleCjkStack}`);
+    root.style.setProperty("--widget-body-font", `${widgetBodyLatinStack}, ${widgetBodyCjkStack}`);
     root.style.setProperty("--font-scale", (normalizedCustom.font_scale / 100).toFixed(3));
     root.style.setProperty("--radius-scale", (normalizedCustom.radius_scale / 100).toFixed(3));
 
     currentThemeId = theme.id;
     currentCustomTheme = normalizedCustom;
     syncThemeOptions();
-    applyCustomAssets(customAssets);
+    if (typeof options.assetUrlResolver === "function") {
+      currentAssetUrlResolver = options.assetUrlResolver;
+    } else if (options.resetAssetUrlResolver) {
+      currentAssetUrlResolver = localAssetUrl;
+    }
+    applyCustomAssets(customAssets, options);
     return theme.id;
   }
 
@@ -392,7 +517,7 @@
     const themeId = THEMES_BY_ID.has(body.theme) ? body.theme : DEFAULT_THEME_ID;
     const customTheme = normalizeCustomTheme(body.custom_theme);
     const customAssets = normalizeCustomAssets(body.custom_assets);
-    applyPalette(themeId, customTheme, customAssets);
+    applyPalette(themeId, customTheme, customAssets, { resetAssetUrlResolver: true });
     return { theme: themeId, custom_theme: customTheme, custom_assets: customAssets };
   }
 
@@ -426,7 +551,7 @@
     const savedId = THEMES_BY_ID.has(body.theme) ? body.theme : normalized;
     const customTheme = normalizeCustomTheme(body.custom_theme || currentCustomTheme);
     const customAssets = normalizeCustomAssets(body.custom_assets || currentCustomAssets);
-    applyPalette(savedId, customTheme, customAssets);
+    applyPalette(savedId, customTheme, customAssets, { resetAssetUrlResolver: true });
     return { theme: savedId, custom_theme: customTheme, custom_assets: customAssets };
   }
 
@@ -461,7 +586,7 @@
     const nextTheme = THEMES_BY_ID.has(body.theme) ? body.theme : normalizedTheme;
     const nextCustomTheme = normalizeCustomTheme(body.custom_theme);
     const nextCustomAssets = normalizeCustomAssets(body.custom_assets || currentCustomAssets);
-    applyPalette(nextTheme, nextCustomTheme, nextCustomAssets);
+    applyPalette(nextTheme, nextCustomTheme, nextCustomAssets, { resetAssetUrlResolver: true });
     return { theme: nextTheme, custom_theme: nextCustomTheme, custom_assets: nextCustomAssets };
   }
 
@@ -488,7 +613,7 @@
     }
 
     const savedAssets = normalizeCustomAssets(body.custom_assets);
-    applyPalette(currentThemeId, currentCustomTheme, savedAssets);
+    applyPalette(currentThemeId, currentCustomTheme, savedAssets, { resetAssetUrlResolver: true });
     return { custom_assets: savedAssets };
   }
 
@@ -499,11 +624,11 @@
     return { theme: normalizedTheme, custom_theme: normalizedCustom, custom_assets: currentCustomAssets };
   }
 
-  function previewCustomAssets(customAssets, themeId = currentThemeId, customTheme = currentCustomTheme) {
+  function previewCustomAssets(customAssets, themeId = currentThemeId, customTheme = currentCustomTheme, options = {}) {
     const normalizedTheme = THEMES_BY_ID.has(themeId) ? themeId : DEFAULT_THEME_ID;
     const normalizedThemeConfig = normalizeCustomTheme(customTheme);
     const normalizedAssets = normalizeCustomAssets(customAssets);
-    applyPalette(normalizedTheme, normalizedThemeConfig, normalizedAssets);
+    applyPalette(normalizedTheme, normalizedThemeConfig, normalizedAssets, options);
     return { theme: normalizedTheme, custom_theme: normalizedThemeConfig, custom_assets: normalizedAssets };
   }
 
@@ -527,7 +652,8 @@
   }
 
   window.MeowTheme = {
-    applyTheme: applyPalette,
+    applyTheme: (themeId, customTheme, customAssets) =>
+      applyPalette(themeId, customTheme, customAssets, { resetAssetUrlResolver: true }),
     getThemes,
     getCurrentTheme: () => currentThemeId,
     getCurrentCustomTheme,
@@ -548,4 +674,3 @@
     init();
   }
 })();
-

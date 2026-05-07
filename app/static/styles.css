@@ -12,8 +12,16 @@
   --danger: #ef7474;
   --danger-strong: #c64a4a;
   --shadow: 0 14px 36px rgba(3, 8, 16, 0.42);
+  --panel-bg: linear-gradient(160deg, #51616b, #5f6f79);
+  --modal-card-bg: linear-gradient(165deg, #51616b, #5f6f79);
+  --card-bg: rgba(95, 111, 121, 0.46);
+  --card-bg-soft: rgba(95, 111, 121, 0.3);
+  --hero-bg: linear-gradient(160deg, rgba(33, 150, 243, 0.22), rgba(95, 111, 121, 0.22));
+  --modal-overlay-bg: rgba(8, 12, 20, 0.58);
   --heading-font: "Trebuchet MS", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --body-font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --widget-title-font: var(--heading-font);
+  --widget-body-font: var(--body-font);
   --input-bg: #5f6f79;
   --bg-glow-secondary: rgba(33, 150, 243, 0.22);
   --font-scale: 1;
@@ -79,7 +87,7 @@ body::after {
 }
 
 .panel {
-  background: linear-gradient(160deg, var(--surface), var(--surface-soft));
+  background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: calc(16px * var(--radius-scale));
   padding: 18px;
@@ -156,7 +164,7 @@ h2 {
 }
 
 .hero-main {
-  background: linear-gradient(160deg, var(--accent-soft), rgba(255, 255, 255, 0.22));
+  background: var(--hero-bg);
   border: 1px solid var(--border);
   border-radius: calc(14px * var(--radius-scale));
   padding: 14px;
@@ -184,7 +192,7 @@ h2 {
   border: 1px dashed var(--border);
   border-radius: calc(12px * var(--radius-scale));
   padding: 12px;
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--card-bg-soft);
 }
 
 .meta-value {
@@ -199,7 +207,7 @@ h2 {
   padding: 12px;
   border-radius: calc(12px * var(--radius-scale));
   margin-bottom: 12px;
-  background: rgba(255, 255, 255, 0.24);
+  background: var(--card-bg-soft);
 }
 
 .status-box.compact {
@@ -335,7 +343,7 @@ select {
   padding: 10px;
   border-radius: calc(12px * var(--radius-scale));
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.32);
+  background: var(--card-bg-soft);
   color: var(--text);
   text-align: left;
   display: grid;
@@ -385,7 +393,7 @@ select {
   border: 1px solid var(--border);
   border-radius: calc(12px * var(--radius-scale));
   padding: 13px;
-  background: rgba(255, 255, 255, 0.46);
+  background: var(--card-bg);
   position: relative;
   overflow: hidden;
 }
@@ -430,11 +438,16 @@ select {
   border-radius: 6px;
   object-fit: cover;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.32);
+  background: var(--card-bg-soft);
   flex: 0 0 auto;
 }
 
+.widget-name {
+  font-family: var(--font-override-widget-title, var(--widget-title-font));
+}
+
 .widget-kind {
+  font-family: var(--font-override-widget-body, var(--widget-body-font));
   font-size: 11px;
   color: var(--muted);
   border: 1px solid var(--border);
@@ -443,6 +456,7 @@ select {
 }
 
 .widget-line {
+  font-family: var(--font-override-widget-body, var(--widget-body-font));
   margin-top: 7px;
   font-size: 14px;
 }
@@ -453,6 +467,7 @@ select {
 }
 
 .error {
+  font-family: var(--font-override-widget-body, var(--widget-body-font));
   color: var(--danger);
   margin-top: 9px;
   min-height: 18px;
@@ -479,13 +494,13 @@ select {
   border-radius: calc(12px * var(--radius-scale));
   padding: 18px;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--card-bg-soft);
 }
 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(8, 12, 20, 0.58);
+  background: var(--modal-overlay-bg);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -496,7 +511,7 @@ select {
 
 .modal-card {
   width: min(460px, 92vw);
-  background: linear-gradient(165deg, var(--surface), var(--surface-soft));
+  background: var(--modal-card-bg);
   border: 1px solid var(--border);
   border-radius: calc(16px * var(--radius-scale));
   padding: 18px;
@@ -588,7 +603,7 @@ select {
   width: 44px;
   height: 24px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.28);
+  background: var(--card-bg-soft);
   border: 1px solid var(--border);
   position: relative;
   transition: background-color 0.18s ease, border-color 0.18s ease;
