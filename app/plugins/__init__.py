@@ -1,5 +1,6 @@
 from .base import ProviderError, ProviderRegistry, WidgetProvider
 from .minecraft import MinecraftBedrockProvider, MinecraftJavaProvider
+from .service import HttpServiceProvider
 
 __all__ = [
     "ProviderError",
@@ -7,4 +8,5 @@ __all__ = [
     "WidgetProvider",
     "MinecraftJavaProvider",
     "MinecraftBedrockProvider",
+    "HttpServiceProvider",
 ]

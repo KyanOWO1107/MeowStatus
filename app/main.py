@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .config import AppConfig, load_config
-from .plugins import MinecraftBedrockProvider, MinecraftJavaProvider, ProviderRegistry
+from .plugins import HttpServiceProvider, MinecraftBedrockProvider, MinecraftJavaProvider, ProviderRegistry
 from .poller import WidgetPoller
 from .store import DEFAULT_UI_COPY, DEFAULT_UI_CUSTOM_ASSETS, DEFAULT_UI_CUSTOM_THEME, StatusStore, utc_now_iso
 
@@ -600,6 +600,22 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.CREATED, widget)
             return
 
+        if path == "/api/widgets/service":
+            if not self._require_admin(enforce_token_rotated=True):
+                return
+
+            body = self._parse_json_body()
+            if body is None:
+                return
+
+            widget, error = self._upsert_service_widget(body)
+            if error:
+                self._send_json(error[0], {"error": error[1]})
+                return
+
+            self._send_json(HTTPStatus.CREATED, widget)
+            return
+
         widget_id, action = self._parse_widget_path(path)
         if widget_id and action == "order":
             if not self._require_admin(enforce_token_rotated=True):
@@ -645,7 +661,7 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
         path = parsed.path
 
         widget_id, action = self._parse_widget_path(path)
-        if not widget_id or action != "minecraft":
+        if not widget_id or action not in {"minecraft", "service"}:
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Route not found"})
             return
 
@@ -661,7 +677,10 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Widget not found"})
             return
 
-        widget, error = self._upsert_minecraft_widget(body, widget_id=widget_id, existing=existing)
+        if action == "minecraft":
+            widget, error = self._upsert_minecraft_widget(body, widget_id=widget_id, existing=existing)
+        else:
+            widget, error = self._upsert_service_widget(body, widget_id=widget_id, existing=existing)
         if error:
             self._send_json(error[0], {"error": error[1]})
             return
@@ -936,6 +955,67 @@ class MeowStatusHandler(BaseHTTPRequestHandler):
             "port": body.get("port", existing_config.get("port")),
             "timeout_sec": body.get("timeout_sec", existing_config.get("timeout_sec", 6)),
             "source": body.get("source", existing_config.get("source", "auto")),
+        }
+
+        try:
+            config = provider.validate_config(raw_config)
+        except Exception as exc:  # noqa: BLE001
+            return None, (HTTPStatus.BAD_REQUEST, str(exc))
+
+        widget = self.context.store.upsert_widget(
+            widget_id=resolved_widget_id,
+            kind=kind,
+            name=name,
+            enabled=enabled,
+            config=config,
+        )
+
+        if enabled:
+            widget = self.context.poller.refresh_widget(resolved_widget_id) or widget
+
+        return widget, None
+
+    def _upsert_service_widget(
+        self,
+        body: dict,
+        *,
+        widget_id: str | None = None,
+        existing: dict | None = None,
+    ) -> tuple[dict | None, tuple[HTTPStatus, str] | None]:
+        kind = "service-http"
+        provider = self.context.registry.get(kind)
+        if provider is None:
+            return None, (HTTPStatus.INTERNAL_SERVER_ERROR, "Provider is not registered")
+
+        resolved_widget_id = widget_id or str(body.get("id", "")).strip() or str(uuid.uuid4())
+
+        if existing is None:
+            existing = self.context.store.get_widget(resolved_widget_id)
+
+        if existing is None:
+            enabled_default = True
+            existing_config: dict = {}
+            existing_name = "服务状态监测"
+        else:
+            enabled_default = existing["enabled"]
+            existing_config = dict(existing["config"])
+            existing_name = existing["name"]
+
+        name = str(body.get("name", existing_name)).strip() or existing_name
+        enabled = self._coerce_bool(body.get("enabled"), enabled_default)
+
+        raw_config = {
+            "url": body.get("url", existing_config.get("url")),
+            "method": body.get("method", existing_config.get("method", "GET")),
+            "timeout_sec": body.get("timeout_sec", existing_config.get("timeout_sec", 5)),
+            "expected_status_min": body.get(
+                "expected_status_min",
+                existing_config.get("expected_status_min", 200),
+            ),
+            "expected_status_max": body.get(
+                "expected_status_max",
+                existing_config.get("expected_status_max", 399),
+            ),
         }
 
         try:
@@ -1299,6 +1379,7 @@ def build_context(config: AppConfig) -> AppContext:
     store = StatusStore(config.db_path, admin_bootstrap_token=config.admin_bootstrap_token)
 
     registry = ProviderRegistry()
+    registry.register(HttpServiceProvider())
     registry.register(MinecraftJavaProvider())
     registry.register(MinecraftBedrockProvider())
 

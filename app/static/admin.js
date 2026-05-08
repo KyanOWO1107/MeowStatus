@@ -7,6 +7,7 @@ const noteEl = document.getElementById("current-note");
 const updatedAtEl = document.getElementById("current-updated-at");
 const statusNoteInput = document.getElementById("status-note");
 const widgetListEl = document.getElementById("widget-list");
+const serviceDetailListEl = document.getElementById("service-detail-list");
 const widgetTemplate = document.getElementById("widget-template");
 
 const authModal = document.getElementById("auth-modal");
@@ -42,11 +43,16 @@ const mcEditIdInput = document.getElementById("mc-edit-id");
 const mcSubmitBtn = document.getElementById("mc-submit-btn");
 const mcCancelEditBtn = document.getElementById("mc-cancel-edit-btn");
 
+const serviceFormTitleEl = document.getElementById("service-form-title");
+const serviceEditIdInput = document.getElementById("service-edit-id");
+const serviceSubmitBtn = document.getElementById("service-submit-btn");
+const serviceCancelEditBtn = document.getElementById("service-cancel-edit-btn");
+
 const DEFAULT_COPY = {
   public_eyebrow: "MEOW STATUS HUB",
   public_title: "MeowStatus Live Board",
   public_subtitle: "公开状态展示页（只读）",
-  public_widgets_title: "挂件状态",
+  public_widgets_title: "Minecraft服务器状态",
   public_state_label: "当前状态",
   public_note_label: "备注",
   public_updated_label: "更新时间",
@@ -111,6 +117,15 @@ function formatTime(value) {
   return d.toLocaleString();
 }
 
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function toOnlineText(payload) {
   if (!payload) return "未知";
   return payload.online ? "在线" : "离线";
@@ -132,6 +147,14 @@ function toLatencyText(payload) {
     return "N/A（SLP 可用）";
   }
   return "-";
+}
+
+function isServiceWidget(widget) {
+  return widget?.kind === "service-http";
+}
+
+function isMinecraftWidget(widget) {
+  return widget?.kind === "minecraft-java" || widget?.kind === "minecraft-bedrock";
 }
 
 function toStateText(state) {
@@ -187,7 +210,7 @@ function resetMinecraftForm() {
   const form = document.getElementById("mc-form");
   if (form) form.reset();
   if (mcEditIdInput) mcEditIdInput.value = "";
-  if (mcFormTitleEl) mcFormTitleEl.textContent = "添加 Minecraft 挂件";
+  if (mcFormTitleEl) mcFormTitleEl.textContent = "添加 Minecraft服务器状态";
   if (mcSubmitBtn) mcSubmitBtn.textContent = "创建挂件";
   if (mcCancelEditBtn) mcCancelEditBtn.classList.add("hidden");
   const enabled = document.getElementById("mc-enabled");
@@ -200,7 +223,7 @@ function resetMinecraftForm() {
 
 function editMinecraftWidget(widget) {
   if (mcEditIdInput) mcEditIdInput.value = widget.id;
-  if (mcFormTitleEl) mcFormTitleEl.textContent = "编辑 Minecraft 挂件";
+  if (mcFormTitleEl) mcFormTitleEl.textContent = "编辑 Minecraft服务器状态";
   if (mcSubmitBtn) mcSubmitBtn.textContent = "保存挂件";
   if (mcCancelEditBtn) mcCancelEditBtn.classList.remove("hidden");
 
@@ -212,6 +235,84 @@ function editMinecraftWidget(widget) {
   document.getElementById("mc-timeout").value = String(widget.config?.timeout_sec || 6);
   document.getElementById("mc-enabled").checked = widget.enabled !== false;
   document.getElementById("mc-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function normalizeServiceTimeout(value) {
+  const timeout = Number(String(value || "5").trim());
+  if (!Number.isInteger(timeout) || timeout < 1 || timeout > 30) {
+    throw new Error("超时秒数必须是 1-30 的整数");
+  }
+  return timeout;
+}
+
+function normalizeServiceStatus(value, label) {
+  const status = Number(String(value || "").trim());
+  if (!Number.isInteger(status) || status < 100 || status > 599) {
+    throw new Error(`${label}必须是 100-599 的整数`);
+  }
+  return status;
+}
+
+function readServiceForm() {
+  const name = document.getElementById("service-name").value.trim();
+  const url = document.getElementById("service-url").value.trim();
+  const method = document.getElementById("service-method").value;
+  const timeoutSec = normalizeServiceTimeout(document.getElementById("service-timeout").value);
+  const expectedStatusMin = normalizeServiceStatus(document.getElementById("service-status-min").value, "正常状态码下限");
+  const expectedStatusMax = normalizeServiceStatus(document.getElementById("service-status-max").value, "正常状态码上限");
+  const enabled = document.getElementById("service-enabled").checked;
+
+  if (!url) {
+    throw new Error("请填写监测 URL");
+  }
+  if (expectedStatusMin > expectedStatusMax) {
+    throw new Error("正常状态码下限不能大于上限");
+  }
+
+  return {
+    name,
+    url,
+    method,
+    timeout_sec: timeoutSec,
+    expected_status_min: expectedStatusMin,
+    expected_status_max: expectedStatusMax,
+    enabled,
+  };
+}
+
+function resetServiceForm() {
+  const form = document.getElementById("service-form");
+  if (form) form.reset();
+  if (serviceEditIdInput) serviceEditIdInput.value = "";
+  if (serviceFormTitleEl) serviceFormTitleEl.textContent = "添加服务状态监测";
+  if (serviceSubmitBtn) serviceSubmitBtn.textContent = "创建监测";
+  if (serviceCancelEditBtn) serviceCancelEditBtn.classList.add("hidden");
+  const enabled = document.getElementById("service-enabled");
+  if (enabled) enabled.checked = true;
+  const method = document.getElementById("service-method");
+  if (method) method.value = "GET";
+  const timeout = document.getElementById("service-timeout");
+  if (timeout) timeout.value = "5";
+  const statusMin = document.getElementById("service-status-min");
+  if (statusMin) statusMin.value = "200";
+  const statusMax = document.getElementById("service-status-max");
+  if (statusMax) statusMax.value = "399";
+}
+
+function editServiceWidget(widget) {
+  if (serviceEditIdInput) serviceEditIdInput.value = widget.id;
+  if (serviceFormTitleEl) serviceFormTitleEl.textContent = "编辑服务状态监测";
+  if (serviceSubmitBtn) serviceSubmitBtn.textContent = "保存监测";
+  if (serviceCancelEditBtn) serviceCancelEditBtn.classList.remove("hidden");
+
+  document.getElementById("service-name").value = widget.name || "";
+  document.getElementById("service-url").value = widget.config?.url || "";
+  document.getElementById("service-method").value = widget.config?.method || "GET";
+  document.getElementById("service-timeout").value = String(widget.config?.timeout_sec || 5);
+  document.getElementById("service-status-min").value = String(widget.config?.expected_status_min || 200);
+  document.getElementById("service-status-max").value = String(widget.config?.expected_status_max || 399);
+  document.getElementById("service-enabled").checked = widget.enabled !== false;
+  document.getElementById("service-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function applyWidgetIcon(node, payload) {
@@ -411,20 +512,158 @@ function renderProfile(profile) {
   statusNoteInput.value = profile.note || "";
 }
 
-function renderWidgets(widgets) {
-  widgetListEl.innerHTML = "";
+function setWidgetLine(node, selector, value, visible = true) {
+  const el = node.querySelector(selector);
+  if (!el) return;
+  const line = el.closest(".widget-line");
+  if (line) line.classList.toggle("hidden", !visible);
+  el.textContent = value;
+}
 
-  if (!widgets.length) {
+function bindServiceDetailActions(node, widget, serviceIndex, services, allWidgets) {
+  const orderedWidgets = Array.isArray(allWidgets) ? allWidgets : [];
+  const currentFullIndex = orderedWidgets.findIndex((item) => item.id === widget.id);
+
+  const moveUpBtn = node.querySelector(".move-up-btn");
+  if (moveUpBtn) {
+    moveUpBtn.disabled = serviceIndex <= 0;
+    moveUpBtn.addEventListener("click", async () => {
+      const previousService = services[serviceIndex - 1];
+      const targetIndex = orderedWidgets.findIndex((item) => item.id === previousService?.id);
+      if (targetIndex < 0) return;
+      try {
+        await request(
+          `/api/widgets/${widget.id}/order`,
+          {
+            method: "POST",
+            body: JSON.stringify({ position: targetIndex }),
+          },
+          { admin: true },
+        );
+        await loadDashboard({ forceSync: false });
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  }
+
+  const moveDownBtn = node.querySelector(".move-down-btn");
+  if (moveDownBtn) {
+    moveDownBtn.disabled = serviceIndex >= services.length - 1 || currentFullIndex < 0;
+    moveDownBtn.addEventListener("click", async () => {
+      const nextService = services[serviceIndex + 1];
+      const targetIndex = orderedWidgets.findIndex((item) => item.id === nextService?.id);
+      if (targetIndex < 0) return;
+      try {
+        await request(
+          `/api/widgets/${widget.id}/order`,
+          {
+            method: "POST",
+            body: JSON.stringify({ position: targetIndex }),
+          },
+          { admin: true },
+        );
+        await loadDashboard({ forceSync: false });
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  }
+
+  node.querySelector(".refresh-btn")?.addEventListener("click", async () => {
+    try {
+      await request(`/api/widgets/${widget.id}/refresh`, { method: "POST", body: "{}" }, { admin: true });
+      await loadDashboard({ forceSync: false });
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  node.querySelector(".edit-btn")?.addEventListener("click", () => {
+    editServiceWidget(widget);
+  });
+
+  node.querySelector(".delete-btn")?.addEventListener("click", async () => {
+    const confirmed = confirm(`确认删除服务监测：${widget.name}？`);
+    if (!confirmed) return;
+
+    try {
+      await request(`/api/widgets/${widget.id}`, { method: "DELETE" }, { admin: true });
+      await loadDashboard({ forceSync: false });
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+}
+
+function renderServiceDetails(widgets) {
+  if (!serviceDetailListEl) return;
+  const allWidgets = Array.isArray(widgets) ? widgets : [];
+  const services = allWidgets.filter(isServiceWidget);
+  serviceDetailListEl.innerHTML = "";
+
+  if (!services.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "还没有挂件，先创建一个 Minecraft 服务。";
+    empty.textContent = "暂无服务监测项。";
+    serviceDetailListEl.appendChild(empty);
+    return;
+  }
+
+  services.forEach((widget, index) => {
+    const payload = widget.last_payload || {};
+    const node = document.createElement("article");
+    node.className = "widget-card";
+    node.dataset.online = payload.online === true ? "online" : payload.online === false ? "offline" : "unknown";
+    const statusText = payload.status_code != null ? `HTTP ${payload.status_code}` : payload.status_text || "连接失败";
+    const expectedMin = widget.config?.expected_status_min ?? payload.expected_status_min ?? 200;
+    const expectedMax = widget.config?.expected_status_max ?? payload.expected_status_max ?? 399;
+    node.innerHTML = `
+      <header>
+        <div class="widget-head-left">
+          <h3 class="widget-name">${escapeHtml(widget.name || "服务状态")}</h3>
+        </div>
+        <span class="widget-kind">服务监测</span>
+      </header>
+      <p class="widget-line"><strong>在线：</strong><span>${escapeHtml(toOnlineText(payload))}</span></p>
+      <p class="widget-line"><strong>目标：</strong><span>${escapeHtml(payload.target || widget.config?.url || "-")}</span></p>
+      <p class="widget-line"><strong>状态：</strong><span>${escapeHtml(statusText)}</span></p>
+      <p class="widget-line"><strong>延迟：</strong><span>${escapeHtml(toLatencyText(payload))}</span></p>
+      <p class="widget-line"><strong>方法：</strong><span>${escapeHtml(payload.method || widget.config?.method || "-")}</span></p>
+      <p class="widget-line"><strong>正常范围：</strong><span>${escapeHtml(`${expectedMin}-${expectedMax}`)}</span></p>
+      <p class="widget-line"><strong>更新时间：</strong><span>${escapeHtml(formatTime(widget.last_updated_at))}</span></p>
+      <p class="error">${escapeHtml(formatWidgetError(widget))}</p>
+      <div class="button-row">
+        <button class="refresh-btn" type="button">刷新</button>
+        <button class="edit-btn" type="button">编辑</button>
+        <button class="delete-btn danger" type="button">删除</button>
+      </div>
+      <div class="button-row order-row">
+        <button class="move-up-btn" type="button">上移</button>
+        <button class="move-down-btn" type="button">下移</button>
+      </div>
+    `;
+    bindServiceDetailActions(node, widget, index, services, allWidgets);
+    serviceDetailListEl.appendChild(node);
+  });
+}
+
+function renderWidgets(widgets) {
+  widgetListEl.innerHTML = "";
+  const allWidgets = Array.isArray(widgets) ? widgets : [];
+  const minecraftWidgets = allWidgets.filter(isMinecraftWidget);
+
+  if (!minecraftWidgets.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "还没有 Minecraft服务器状态，先创建一个 Minecraft 服务。";
     widgetListEl.appendChild(empty);
     return;
   }
 
-  const total = widgets.length;
+  const total = minecraftWidgets.length;
 
-  widgets.forEach((widget, index) => {
+  minecraftWidgets.forEach((widget, index) => {
     const payload = widget.last_payload;
     const node = widgetTemplate.content.firstElementChild.cloneNode(true);
 
@@ -433,26 +672,30 @@ function renderWidgets(widgets) {
     node.querySelector(".widget-name").textContent = widget.name;
     node.querySelector(".widget-kind").textContent = widget.kind;
     applyWidgetIcon(node, payload);
-    node.querySelector(".target").textContent = payload?.target || `${widget.config.host}:${widget.config.port}`;
-    node.querySelector(".online").textContent = toOnlineText(payload);
-    node.querySelector(".version").textContent = payload?.version || "-";
-    node.querySelector(".software").textContent = payload?.server_software || "-";
-    node.querySelector(".players").textContent = toPlayersText(payload);
-    node.querySelector(".motd").textContent = payload?.motd || "-";
-    node.querySelector(".latency").textContent = toLatencyText(payload);
-    node.querySelector(".updated-at").textContent = formatTime(widget.last_updated_at);
+    const target = payload?.target || `${widget.config.host}:${widget.config.port}`;
+    setWidgetLine(node, ".target", target);
+    setWidgetLine(node, ".online", toOnlineText(payload));
+    setWidgetLine(node, ".version", payload?.version || "-");
+    setWidgetLine(node, ".software", payload?.server_software || "-");
+    setWidgetLine(node, ".players", toPlayersText(payload));
+    setWidgetLine(node, ".motd", payload?.motd || "-");
+    setWidgetLine(node, ".latency", toLatencyText(payload));
+    setWidgetLine(node, ".updated-at", formatTime(widget.last_updated_at));
     node.querySelector(".error").textContent = formatWidgetError(widget);
 
     const moveUpBtn = node.querySelector(".move-up-btn");
     if (moveUpBtn) {
       moveUpBtn.disabled = index <= 0;
       moveUpBtn.addEventListener("click", async () => {
+        const previousMinecraft = minecraftWidgets[index - 1];
+        const targetIndex = allWidgets.findIndex((item) => item.id === previousMinecraft?.id);
+        if (targetIndex < 0) return;
         try {
           await request(
             `/api/widgets/${widget.id}/order`,
             {
               method: "POST",
-              body: JSON.stringify({ position: Math.max(0, index - 1) }),
+              body: JSON.stringify({ position: targetIndex }),
             },
             { admin: true },
           );
@@ -467,12 +710,15 @@ function renderWidgets(widgets) {
     if (moveDownBtn) {
       moveDownBtn.disabled = index >= total - 1;
       moveDownBtn.addEventListener("click", async () => {
+        const nextMinecraft = minecraftWidgets[index + 1];
+        const targetIndex = allWidgets.findIndex((item) => item.id === nextMinecraft?.id);
+        if (targetIndex < 0) return;
         try {
           await request(
             `/api/widgets/${widget.id}/order`,
             {
               method: "POST",
-              body: JSON.stringify({ position: Math.min(total - 1, index + 1) }),
+              body: JSON.stringify({ position: targetIndex }),
             },
             { admin: true },
           );
@@ -879,6 +1125,7 @@ function readAssetThemeFontForm() {
 async function loadDashboard({ forceSync = false } = {}) {
   const dashboard = await request("/api/admin/dashboard", { method: "GET" }, { admin: true });
   renderProfile(dashboard.profile_status);
+  renderServiceDetails(dashboard.widgets || []);
   renderWidgets(dashboard.widgets || []);
 
   if (dashboard.theme && window.MeowTheme) {
@@ -972,12 +1219,42 @@ function bindMinecraftForm() {
   });
 }
 
+function bindServiceForm() {
+  const form = document.getElementById("service-form");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    try {
+      const body = readServiceForm();
+      const editId = String(serviceEditIdInput?.value || "").trim();
+      const path = editId ? `/api/widgets/${editId}/service` : "/api/widgets/service";
+      const method = editId ? "PUT" : "POST";
+      await request(
+        path,
+        {
+          method,
+          body: JSON.stringify(body),
+        },
+        { admin: true },
+      );
+      resetServiceForm();
+      await loadDashboard({ forceSync: false });
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  serviceCancelEditBtn?.addEventListener("click", () => {
+    resetServiceForm();
+  });
+}
+
 function bindGlobalRefresh() {
   document.getElementById("refresh-all").addEventListener("click", async () => {
     try {
       const widgets = await request("/api/admin/widgets", { method: "GET" }, { admin: true });
       await Promise.all(
-        (widgets.items || []).map((widget) =>
+        (widgets.items || []).filter(isMinecraftWidget).map((widget) =>
           request(`/api/widgets/${widget.id}/refresh`, { method: "POST", body: "{}" }, { admin: true }),
         ),
       );
@@ -1291,6 +1568,7 @@ function init() {
 
   bindAuth();
   bindProfileActions();
+  bindServiceForm();
   bindMinecraftForm();
   bindGlobalRefresh();
   bindThemePanel();

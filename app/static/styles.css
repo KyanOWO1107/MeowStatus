@@ -298,6 +298,12 @@ select {
   font-size: 14px;
 }
 
+.inline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .panel-head {
   display: flex;
   align-items: center;
@@ -547,6 +553,10 @@ select {
 @media (max-width: 560px) {
   .row-form {
     flex-direction: column;
+  }
+
+  .inline-fields {
+    grid-template-columns: 1fr;
   }
 
   .button-row {

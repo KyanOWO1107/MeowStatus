@@ -1,7 +1,8 @@
 const stateEl = document.getElementById("current-state");
 const noteEl = document.getElementById("current-note");
 const updatedAtEl = document.getElementById("current-updated-at");
-const widgetListEl = document.getElementById("widget-list");
+const serviceWidgetListEl = document.getElementById("service-widget-list");
+const minecraftWidgetListEl = document.getElementById("minecraft-widget-list");
 const widgetTemplate = document.getElementById("widget-template");
 
 const publicEyebrowEl = document.getElementById("public-eyebrow");
@@ -16,7 +17,7 @@ const DEFAULT_COPY = {
   public_eyebrow: "MEOW STATUS HUB",
   public_title: "MeowStatus Live Board",
   public_subtitle: "公开状态展示页（只读）",
-  public_widgets_title: "挂件状态",
+  public_widgets_title: "Minecraft服务器状态",
   public_state_label: "当前状态",
   public_note_label: "备注",
   public_updated_label: "更新时间",
@@ -60,6 +61,14 @@ function toLatencyText(payload) {
     return "N/A（SLP 可用）";
   }
   return "-";
+}
+
+function isServiceWidget(widget) {
+  return widget?.kind === "service-http";
+}
+
+function isMinecraftWidget(widget) {
+  return widget?.kind === "minecraft-java" || widget?.kind === "minecraft-bedrock";
 }
 
 function toStateText(state) {
@@ -138,14 +147,23 @@ function renderProfile(profile) {
   updatedAtEl.textContent = formatTime(profile.updated_at);
 }
 
-function renderWidgets(widgets) {
-  widgetListEl.innerHTML = "";
+function setWidgetLine(node, selector, value, visible = true) {
+  const el = node.querySelector(selector);
+  if (!el) return;
+  const line = el.closest(".widget-line");
+  if (line) line.classList.toggle("hidden", !visible);
+  el.textContent = value;
+}
+
+function renderWidgetGroup(container, widgets, emptyText) {
+  if (!container) return;
+  container.innerHTML = "";
 
   if (!widgets.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = currentCopy.public_empty_widgets;
-    widgetListEl.appendChild(empty);
+    empty.textContent = emptyText;
+    container.appendChild(empty);
     return;
   }
 
@@ -156,20 +174,28 @@ function renderWidgets(widgets) {
     node.dataset.online = payload?.online === true ? "online" : payload?.online === false ? "offline" : "unknown";
 
     node.querySelector(".widget-name").textContent = widget.name;
-    node.querySelector(".widget-kind").textContent = widget.kind;
+    node.querySelector(".widget-kind").textContent = isServiceWidget(widget) ? "服务状态" : widget.kind;
     applyWidgetIcon(node, payload);
-    node.querySelector(".target").textContent = payload?.target || "-";
-    node.querySelector(".online").textContent = toOnlineText(payload);
-    node.querySelector(".version").textContent = payload?.version || "-";
-    node.querySelector(".software").textContent = payload?.server_software || "-";
-    node.querySelector(".players").textContent = toPlayersText(payload);
-    node.querySelector(".motd").textContent = payload?.motd || "-";
-    node.querySelector(".latency").textContent = toLatencyText(payload);
-    node.querySelector(".updated-at").textContent = formatTime(widget.last_updated_at);
-    node.querySelector(".error").textContent = formatWidgetError(widget);
+    setWidgetLine(node, ".target", payload?.target || "-", isMinecraftWidget(widget));
+    setWidgetLine(node, ".online", toOnlineText(payload));
+    setWidgetLine(node, ".version", payload?.version || "-", isMinecraftWidget(widget));
+    setWidgetLine(node, ".software", payload?.server_software || "-", isMinecraftWidget(widget));
+    setWidgetLine(node, ".players", toPlayersText(payload), isMinecraftWidget(widget));
+    setWidgetLine(node, ".motd", payload?.motd || "-", isMinecraftWidget(widget));
+    setWidgetLine(node, ".latency", toLatencyText(payload), isMinecraftWidget(widget));
+    setWidgetLine(node, ".updated-at", formatTime(widget.last_updated_at));
+    node.querySelector(".error").textContent = isServiceWidget(widget) ? "" : formatWidgetError(widget);
 
-    widgetListEl.appendChild(node);
+    container.appendChild(node);
   });
+}
+
+function renderWidgets(widgets) {
+  const list = Array.isArray(widgets) ? widgets : [];
+  const services = list.filter(isServiceWidget);
+  const minecraft = list.filter(isMinecraftWidget);
+  renderWidgetGroup(serviceWidgetListEl, services, "暂时没有服务状态监测数据。");
+  renderWidgetGroup(minecraftWidgetListEl, minecraft, currentCopy.public_empty_widgets);
 }
 
 async function loadDashboard() {

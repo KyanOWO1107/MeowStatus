@@ -50,7 +50,7 @@ DEFAULT_UI_COPY: dict[str, str] = {
     "public_eyebrow": "MEOW STATUS HUB",
     "public_title": "MeowStatus Live Board",
     "public_subtitle": "公开状态展示页（只读）",
-    "public_widgets_title": "挂件状态",
+    "public_widgets_title": "Minecraft服务器状态",
     "public_state_label": "当前状态",
     "public_note_label": "备注",
     "public_updated_label": "更新时间",
@@ -608,7 +608,10 @@ class StatusStore:
 
     def get_ui_copy(self) -> dict[str, str]:
         raw = self._get_json_setting(UI_COPY_KEY, DEFAULT_UI_COPY)
-        return {key: str(value) for key, value in raw.items()}
+        copy = {key: str(value) for key, value in raw.items()}
+        if copy.get("public_widgets_title") in {"挂件状态", "Minecraft 服务器"}:
+            copy["public_widgets_title"] = DEFAULT_UI_COPY["public_widgets_title"]
+        return copy
 
     def set_ui_copy(self, copy: dict[str, str]) -> dict[str, str]:
         merged = dict(DEFAULT_UI_COPY)
@@ -656,19 +659,32 @@ class StatusStore:
 
     def _widget_to_public_dict(self, widget: dict[str, Any]) -> dict[str, Any]:
         payload = widget.get("last_payload")
-        safe_payload = self._payload_to_public_dict(payload) if isinstance(payload, dict) else None
+        kind = str(widget["kind"])
+        safe_payload = (
+            self._payload_to_public_dict(payload, kind=kind)
+            if isinstance(payload, dict)
+            else None
+        )
         return {
             "id": widget["id"],
-            "kind": widget["kind"],
+            "kind": kind,
             "name": widget["name"],
             "sort_order": widget["sort_order"],
             "last_payload": safe_payload,
             "last_updated_at": widget["last_updated_at"],
-            "last_error": widget["last_error"],
-            "last_error_code": widget["last_error_code"],
+            "last_error": None if kind == "service-http" else widget["last_error"],
+            "last_error_code": None if kind == "service-http" else widget["last_error_code"],
         }
 
-    def _payload_to_public_dict(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _payload_to_public_dict(self, payload: dict[str, Any], *, kind: str) -> dict[str, Any]:
+        if kind == "service-http":
+            allowed_keys = {
+                "online",
+                "latency_ms",
+                "checked_at",
+            }
+            return {key: payload.get(key) for key in allowed_keys if key in payload}
+
         allowed_keys = {
             "provider",
             "source",
@@ -680,6 +696,11 @@ class StatusStore:
             "players_online",
             "players_max",
             "latency_ms",
+            "status_code",
+            "status_text",
+            "method",
+            "expected_status_min",
+            "expected_status_max",
             "ping_protocol_used",
             "query_protocol_used",
             "favicon",
